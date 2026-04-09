@@ -1,0 +1,436 @@
+# Prompt maestro — Aplicación editorial automatizada para WordPress
+
+Quiero que construyas una aplicación de automatización editorial para un único sitio WordPress muy específico.
+
+## OBJETIVO GENERAL
+La aplicación debe detectar nuevo contenido dentro de una carpeta caliente en un Synology, procesarlo automáticamente, clasificarlo en la sección correcta del WordPress, extraer y redactar el contenido cuando haga falta, preparar las imágenes, generar el JSON final compatible con mi sistema de importación y dejar el contenido listo para importar o publicar.
+
+La prioridad es:
+1. mínimo mantenimiento
+2. máxima robustez
+3. arquitectura simple
+4. posibilidad de revisión manual de casos dudosos
+5. evitar reprocesar el mismo contenido
+6. poder reprocesar si un lote ha cambiado
+7. posibilidad futura de publicar directamente en WordPress
+
+## ARQUITECTURA RECOMENDADA
+Quiero una aplicación externa en Docker, no un plugin grande dentro de WordPress.
+WordPress debe quedar como sistema destino, no como motor de procesamiento.
+
+## STACK TÉCNICO
+Usa:
+- Python 3.12
+- FastAPI para una API interna y un panel mínimo de revisión
+- SQLAlchemy
+- PostgreSQL o SQLite inicialmente, con preferencia por PostgreSQL si no complica demasiado
+- watchdog para vigilar carpetas
+- Pillow para procesado de imágenes
+- python-docx para DOCX
+- PyMuPDF o pdfplumber para PDF digital
+- Tesseract OCR o PaddleOCR para imágenes y PDFs escaneados
+- pydantic para validación de modelos
+- Docker y docker-compose
+- integración con Telegram para avisos
+- un proveedor LLM desacoplado mediante interfaz, para poder cambiarlo fácilmente
+
+## FORMA DE DESPLIEGUE
+La aplicación correrá en Docker en mi servidor.
+La carpeta caliente estará en un Synology montado en el contenedor o accesible por ruta compartida.
+La aplicación puede vivir 24/7 vigilando la carpeta.
+
+## NO QUIERO
+- una solución genérica para muchos clientes
+- estadísticas complejas
+- dashboards recargados
+- acoplar toda la lógica a WordPress
+- inventar datos del contenido
+- depender exclusivamente del nombre del archivo para detectar duplicados
+
+## CASO DE USO REAL
+Recibo contenidos editoriales para una web WordPress.
+Los contenidos suelen llegar en carpetas con esta lógica:
+- carpeta raíz con municipio y número de revista, por ejemplo "cerdanya 320"
+- dentro puede haber subcarpetas por categoría, por ejemplo agenda, gastronomia, cultura, etc.
+- dentro puede haber:
+  - PDF
+  - DOCX
+  - JPG
+  - PNG
+  - varias imágenes relacionadas con un artículo
+  - carpetas por artículo
+- a veces los archivos vienen perfectamente agrupados
+- otras veces hay varias imágenes juntas y hay que inferir a qué contenido pertenecen
+
+## CATEGORÍAS / CPT
+Cada categoría editorial del WordPress es un CPT separado.
+El municipio es una taxonomía compartida entre los CPT.
+Normalmente un artículo pertenece a:
+- una sola categoría/CPT
+- un solo municipio
+pero en casos ambiguos puede marcarse como general.
+
+## MUNICIPIOS PRINCIPALES
+- Cerdanya
+- Maresme
+- Berguedà
+- General
+
+## REGLAS DE CLASIFICACIÓN
+La clasificación debe ser híbrida:
+1. reglas duras por estructura de carpetas
+2. reglas por nombre del lote
+3. reglas por contenido extraído
+4. IA para resolver ambigüedad
+5. si no hay suficiente confianza, el contenido queda pendiente de revisión
+
+Heurísticas de municipio:
+- si la carpeta raíz contiene "cerdanya", asignar Cerdanya
+- si contiene "maresme", asignar Maresme
+- si contiene "bergueda" o "berguedà", asignar Berguedà
+- si el contenido contradice la carpeta, marcar duda para revisión
+- si no hay seguridad suficiente, usar General como fallback controlado
+
+Heurísticas de categoría:
+- usar primero el nombre de la subcarpeta
+- después el contenido textual extraído
+- después IA
+- si hay contradicción, priorizar el contenido si la confianza es alta
+- si no, dejar pendiente de revisión
+
+## CASOS ESPECIALES IMPORTANTES
+1. CULTURA
+Dentro del mismo CPT de cultura existen dos variantes:
+- cultura general
+- libros
+Cuando sea un libro, hay que rellenar los campos propios de libro.
+
+2. GASTRONOMÍA
+Dentro del mismo CPT de gastronomía existen dos variantes:
+- contenido genérico de gastronomía
+- receta
+Cuando sea receta, hay que marcar el tipo correspondiente y usar la plantilla interna correcta.
+
+3. AGENDA
+La agenda tiene campos más delicados.
+Hay que detectar con la máxima precisión:
+- título
+- fecha del evento
+- fecha inicio si existe
+- fecha final si existe
+- fechas para buscador
+- posibles actividades internas si el contenido viene estructurado así
+Si faltan datos críticos de agenda, el artículo no debe publicarse automáticamente.
+
+4. CARTELES
+Si solo llega una imagen tipo cartel:
+- hacer OCR
+- extraer la información posible
+- crear el artículo igualmente
+- usar la imagen del cartel como imagen destacada
+- repetirla también al final del contenido si procede
+- si faltan datos no inventar nada
+- si existe posibilidad de enriquecer con fuentes oficiales, dejar la arquitectura preparada pero no obligatoria en la V1
+
+5. REPORTAJES CON MUCHAS IMÁGENES
+Si un artículo tiene muchos bloques internos y varias imágenes:
+- intentar asociar imágenes a bloques por nombre, orden o cercanía
+- si no hay seguridad, usar galería al final
+- si solo hay 1 o 2 imágenes, repartirlas dentro del contenido
+
+## ENTRADAS SOPORTADAS
+La app debe soportar:
+- PDF digital
+- PDF escaneado
+- DOCX
+- JPG
+- PNG
+- carpetas con varios archivos
+
+## MODO REVISTA COMPLETA
+Quiero dejar preparado un módulo para un caso avanzado:
+si subo el PDF completo de una revista, la aplicación debe poder:
+- detectar artículos separados
+- segmentarlos
+- clasificarlos
+- generar cada contenido por separado
+- asignar cada pieza a su sección correcta
+Este modo debe diseñarse desde el principio, pero puede implementarse como V2 porque es más complejo.
+
+## FLUJO FUNCIONAL
+Quiero este flujo:
+
+1. WATCHER
+Vigilar carpeta caliente y detectar nuevos archivos o carpetas.
+
+2. INGESTA
+Copiar el lote a una carpeta de trabajo interna.
+Calcular hashes de:
+- cada archivo
+- el lote completo
+Guardar metadatos:
+- ruta original
+- fecha de entrada
+- tamaño
+- tipo MIME
+- hash
+- municipio inferido por carpeta
+- categoría inferida por carpeta
+
+3. AGRUPACIÓN
+Agrupar archivos por candidato a artículo.
+Reglas:
+- si existe carpeta propia del artículo, esa carpeta manda
+- si hay DOCX o PDF principal y varias imágenes cerca, asociarlas
+- si hay imágenes sueltas en carpeta genérica, intentar agrupar por nombre y proximidad
+- si no hay certeza, marcar agrupación dudosa
+
+4. EXTRACCIÓN
+Extraer texto de:
+- PDF digital con parser nativo
+- PDF escaneado con OCR
+- DOCX leyendo párrafos y estilos
+- imágenes con OCR
+Guardar texto bruto y texto limpio.
+
+5. CLASIFICACIÓN
+Determinar:
+- municipio
+- CPT/categoría
+- subtipo dentro del CPT si aplica
+- nivel de confianza
+La clasificación debe devolver explicaciones internas para auditoría.
+
+6. NORMALIZACIÓN
+Convertir cada contenido a una estructura interna única, por ejemplo:
+{
+  "source_batch_id": "",
+  "source_item_id": "",
+  "municipio": "",
+  "categoria": "",
+  "subtipo": "",
+  "titulo": "",
+  "resumen": "",
+  "contenido_base": "",
+  "contenido_final": "",
+  "imagenes": [],
+  "campos_extraidos": {},
+  "confianza_clasificacion": 0.0,
+  "confianza_extraccion": 0.0,
+  "estado": ""
+}
+
+7. ENRIQUECIMIENTO EDITORIAL
+Reglas:
+- usar el texto original si ya está suficientemente bien
+- si está demasiado corto, ampliarlo un poco
+- si está desordenado, reestructurarlo
+- nunca inventar nombres, lugares, fechas o hechos no presentes
+- el LLM puede mejorar redacción y estructura, pero no inventar datos
+- si faltan datos importantes, reflejarlo como falta de datos y no publicarlo automáticamente
+
+8. IMÁGENES
+Procesar imágenes automáticamente:
+- ancho máximo 2000 px
+- JPG calidad 60 por defecto
+- permitir conversión de PNG a JPG
+- dejar preparada opción para WebP
+- generar imagen destacada obligatoria
+- si hay varias imágenes, decidir:
+  - 1 o 2: insertarlas dentro del contenido
+  - muchas: usar galería o mezcla de inserción + galería
+- guardar también versión optimizada y original
+
+9. MAPEO A WORDPRESS
+La aplicación debe mapear el contenido final al formato WordPress.
+La V1 debe generar JSON compatible con mi sistema actual de importación.
+Diseña el sistema para que luego pueda añadirse publicación directa por REST API o vía interna.
+El mapeo debe contemplar:
+- campos comunes
+- taxonomía de municipio
+- campos específicos por CPT
+- subtipos como cultura/libro y gastronomía/receta
+
+10. REVISIÓN Y ESTADO
+Reglas de estado:
+- si confianza alta y campos críticos completos: listo para importar o publicar
+- si confianza media: pendiente de revisión
+- si falta información crítica o hay conflicto: pendiente de revisión obligatoria
+Configurable:
+- draft
+- pending review
+- publish
+
+11. SALIDA
+La V1 debe producir:
+- JSON final por artículo o por lote
+- carpeta de imágenes optimizadas
+- registro de proceso
+- log de errores
+- motivo de clasificación
+- estado final
+- posibilidad de enviar el JSON a carpeta de importación del plugin
+
+12. TELEGRAM
+Enviar avisos por Telegram cuando:
+- entre un nuevo lote
+- un lote se procese correctamente
+- haya errores
+- haya casos dudosos pendientes
+- falle OCR o clasificación
+No hace falta nada complejo, solo mensajes útiles y claros.
+
+13. DUPLICADOS Y REPROCESADO
+No confiar en el nombre de archivo.
+Implementar:
+- hash por archivo
+- hash por lote
+- registro de contenido ya procesado
+- detección de cambios si el archivo se modifica
+Permitir:
+- no reprocesar si ya está subido y no ha cambiado
+- reprocesar manualmente si el usuario lo fuerza
+- reprocesar automáticamente si cambió el hash del lote
+
+## PANEL MÍNIMO
+Crear una interfaz web sencilla con FastAPI + Jinja o una opción similar, muy simple.
+Debe permitir:
+- ver lotes entrantes
+- ver estado del proceso
+- ver casos dudosos
+- abrir el texto extraído
+- ver la clasificación propuesta
+- forzar reproceso
+- aprobar o rechazar
+- descargar o inspeccionar el JSON generado
+Nada de diseño complejo. Solo funcional.
+
+## ESTRUCTURA DE CÓDIGO
+Quiero una base de código limpia, didáctica y modular.
+Propón una estructura similar a esta:
+
+app/
+  api/
+  core/
+  config/
+  db/
+  models/
+  services/
+    watcher/
+    ingestion/
+    grouping/
+    extraction/
+    ocr/
+    classification/
+    editorial/
+    images/
+    wordpress/
+    import_json/
+    telegram/
+  templates/
+  static/
+  tests/
+
+## REQUISITOS DE IMPLEMENTACIÓN
+- código claro y muy legible
+- funciones pequeñas
+- nombres descriptivos
+- typing en Python
+- validación con pydantic
+- logging serio
+- manejo de errores robusto
+- comentarios útiles, no excesivos
+- tests básicos para componentes críticos
+- configuración por variables de entorno
+- Dockerfile y docker-compose listos
+- README detallado
+- archivos de ejemplo para configuración
+
+## SALIDA QUE QUIERO DE TI
+Quiero que generes el proyecto por fases:
+
+### FASE 1
+- arquitectura completa
+- modelos de datos
+- configuración
+- base de datos
+- watcher
+- ingesta
+- agrupación
+- extracción de texto
+- OCR
+- clasificación básica híbrida
+- procesado de imágenes
+- generación de JSON
+- avisos por Telegram
+- panel mínimo
+- Docker
+
+### FASE 2
+- mejora de reglas editoriales
+- mejora de asociación de imágenes
+- publicación directa en WordPress
+- colas de trabajo
+- reintentos
+- mejores validaciones
+
+### FASE 3
+- modo revista completa
+- segmentación automática de artículos dentro de un PDF completo
+- asociación avanzada de imágenes
+- mejoras de precisión
+
+## IMPORTANTE
+- no inventes datos del contenido
+- documenta claramente qué partes son seguras y qué partes son heurísticas
+- evita acoplamientos innecesarios
+- diseña para mi caso concreto, no como SaaS multiusuario
+- prioriza robustez y facilidad de mantenimiento
+- deja puntos de extensión claros para adaptar reglas por categoría
+
+## ADEMÁS
+Quiero que generes:
+1. el código base completo
+2. el docker-compose
+3. el esquema SQLAlchemy
+4. los modelos Pydantic
+5. el pipeline de procesamiento
+6. un README muy detallado
+7. un archivo .env.example
+8. tests mínimos
+9. ejemplos de entrada y salida
+10. un módulo donde yo pueda añadir reglas por categoría fácilmente
+
+## MAPEO DE CONTENIDO
+Diseña una capa de adaptadores por CPT:
+- AgendaAdapter
+- CulturaAdapter
+- GastronomiaAdapter
+- EsportsAdapter
+- EntrevistesAdapter
+- ConsellsAdapter
+- NensIJovesAdapter
+- TurismeActiuAdapter
+- NoticiesAdapter
+
+Cada adapter debe:
+- validar campos obligatorios
+- mapear municipio
+- mapear featured_image
+- construir post_content final
+- generar JSON compatible
+- decidir si está listo para publicar o para revisión
+
+## DECISIONES EDITORIALES
+Implementa reglas iniciales:
+- si solo hay cartel, crear contenido breve pero útil
+- si hay texto largo y bueno, respetarlo
+- si hay varias imágenes, priorizar coherencia antes que insertar demasiadas
+- featured image siempre obligatoria
+- si no hay featured image, marcar como error crítico
+- si agenda no tiene fecha suficiente, marcar revisión
+- si libro, rellenar campos editoriales de cultura
+- si receta, marcar el tipo de gastronomía adecuado
+
+## FORMATO DEL RESULTADO
+Quiero que me entregues el proyecto en bloques claros, con código completo, sin dejar pseudocódigo donde ya puedas escribir implementación real.

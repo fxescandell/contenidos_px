@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración del Sistema</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        h1, h2 { margin-top: 0; color: #2c3e50; }
+        .alert { padding: 15px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; }
+        .btn { background: #0066cc; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        .btn-test { background: #6c757d; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>Selecciona una categoria de la izquierda</h2>
+            <p>Utiliza el menu para navegar por las diferentes secciones de configuracion del sistema.</p>
+            <p style="color:#888; font-size:13px; margin-top:15px;">Los valores guardados en cada seccion prevalecen sobre el archivo <code>.env</code>. Las contrasenas y tokens se ocultan automaticamente por seguridad.</p>
+        </div>
+    </div>
+
+</body>
+</html>

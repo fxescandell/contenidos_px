@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuración - Rutas de trabajo</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; font-size: 14px; }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;
+        }
+        .btn { background: #0066cc; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; } .btn-save:hover { background: #218838; font-size: 15px; padding: 10px 20px; }
+        .btn-test { background: #6c757d; } .btn-test:hover { background: #5a6268; }
+        .btn-teal { background: #17a2b8; } .btn-teal:hover { background: #138496; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .help-text { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .section-box p.desc { font-size: 13px; color: #666; margin: 0 0 15px 0; line-height: 1.5; }
+        .input-row { display: flex; gap: 15px; }
+        .input-row .form-group { flex: 1; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .test-output { margin-top: 12px; font-weight: bold; font-size: 13px; min-height: 18px; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+        .status-dot.yellow { background: #ffc107; }
+        .path-row { display: flex; align-items: flex-start; gap: 8px; }
+        .path-row .form-group { flex: 1; margin-bottom: 0; }
+        .path-status { font-size: 12px; padding: 6px 10px; white-space: nowrap; min-width: 80px; text-align: center; border-radius: 4px; }
+        .path-status.ok { background: #d4edda; color: #155724; }
+        .path-status.not-found { background: #f8d7da; color: #721c24; }
+        .path-status.no-perm { background: #fff3cd; color: #856404; }
+        .path-status.loading { background: #f0f0f0; color: #888; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>8. Rutas de trabajo</h2>
+            {% if success %}
+            <div class="alert">Configuración guardada correctamente.</div>
+            {% endif %}
+            <form action="/settings/paths" method="POST">
+
+                <div class="section-box">
+                    <h3>Carpetas del pipeline</h3>
+                    <p class="desc">Define las carpetas locales donde el pipeline trabaja. Asegúrate de que existen y tienen permisos de escritura.</p>
+
+                    <div class="form-group">
+                        <label>Working folder</label>
+                        <div class="path-row">
+                            <div class="form-group">
+                                <input type="text" name="setting_working_folder_path" value="{{ values.working_folder_path or '' }}" placeholder="/tmp/editorial/working" id="input-working_folder_path">
+                                <span class="help-text">Carpeta donde se descomprimen y procesan los archivos temporales del pipeline.</span>
+                            </div>
+                            <button type="button" class="btn btn-test btn-sm" onclick="verifyPath(document.getElementById('input-working_folder_path'))">Verificar</button>
+                        </div>
+                        <span id="path-status-working_folder_path" class="path-status" style="display:none;"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Export output</label>
+                        <div class="path-row">
+                            <div class="form-group">
+                                <input type="text" name="setting_export_output_path" value="{{ values.export_output_path or '' }}" placeholder="/tmp/editorial/export" id="input-export_output_path">
+                                <span class="help-text">Carpeta donde se guardan los JSON exportados antes de enviar al outfolder.</span>
+                            </div>
+                            <button type="button" class="btn btn-test btn-sm" onclick="verifyPath(document.getElementById('input-export_output_path'))">Verificar</button>
+                        </div>
+                        <span id="path-status-export_output_path" class="path-status" style="display:none;"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Temp folder</label>
+                        <div class="path-row">
+                            <div class="form-group">
+                                <input type="text" name="setting_temp_folder_path" value="{{ values.temp_folder_path or '' }}" placeholder="/tmp/editorial/temp" id="input-temp_folder_path">
+                                <span class="help-text">Archivos temporales (se limpia automáticamente después de cada procesamiento).</span>
+                            </div>
+                            <button type="button" class="btn btn-test btn-sm" onclick="verifyPath(document.getElementById('input-temp_folder_path'))">Verificar</button>
+                        </div>
+                        <span id="path-status-temp_folder_path" class="path-status" style="display:none;"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Log folder</label>
+                        <div class="path-row">
+                            <div class="form-group">
+                                <input type="text" name="setting_log_folder_path" value="{{ values.log_folder_path or '' }}" placeholder="/tmp/editorial/logs" id="input-log_folder_path">
+                                <span class="help-text">Carpeta para los logs de la aplicación.</span>
+                            </div>
+                            <button type="button" class="btn btn-test btn-sm" onclick="verifyPath(document.getElementById('input-log_folder_path'))">Verificar</button>
+                        </div>
+                        <span id="path-status-log_folder_path" class="path-status" style="display:none;"></span>
+                    </div>
+                </div>
+
+                <div class="section-box">
+                    <h3>Acciones</h3>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-test" onclick="verifyAllPaths()">Verificar todas las rutas</button>
+                        <button type="button" class="btn btn-teal" onclick="createMissingPaths()">Crear carpetas que faltan</button>
+                    </div>
+                    <div id="test-result" class="test-output"></div>
+                </div>
+
+                <hr style="border:0; border-top:1px solid #eee; margin: 25px 0;">
+                <button type="submit" class="btn btn-save">Guardar Configuración</button>
+            </form>
+        </div>
+    </div>
+    <script>
+        const pathFields = ['working_folder_path', 'export_output_path', 'temp_folder_path', 'log_folder_path'];
+
+        function getPathName(input) {
+            return input.id.replace('input-', '');
+        }
+
+        function showStatus(name, status, text) {
+            const el = document.getElementById('path-status-' + name);
+            el.style.display = 'inline-block';
+            el.className = 'path-status ' + status;
+            if (status === 'ok') {
+                el.innerHTML = '<span class="status-dot green"></span>OK';
+            } else if (status === 'not-found') {
+                el.innerHTML = '<span class="status-dot red"></span>No existe';
+            } else if (status === 'no-perm') {
+                el.innerHTML = '<span class="status-dot yellow"></span>Sin permisos';
+            } else {
+                el.textContent = text || '...';
+            }
+        }
+
+        async function verifyPath(input) {
+            const name = getPathName(input);
+            const path = input.value.trim();
+            if (!path) return;
+            showStatus(name, 'loading', 'Verificando...');
+            try {
+                const res = await fetch('/settings/test/path', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({path: path})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (data.writable === false) {
+                        showStatus(name, 'no-perm');
+                    } else {
+                        showStatus(name, 'ok');
+                    }
+                } else {
+                    showStatus(name, 'not-found');
+                }
+            } catch(e) {
+                showStatus(name, 'not-found');
+                const el = document.getElementById('path-status-' + name);
+                el.innerHTML = '<span class="status-dot red"></span>Error';
+            }
+        }
+
+        async function verifyAllPaths() {
+            const resultEl = document.getElementById('test-result');
+            resultEl.textContent = 'Verificando todas las rutas...';
+            resultEl.style.color = '#666';
+            let ok = 0, fail = 0, total = 0;
+            for (const name of pathFields) {
+                const input = document.getElementById('input-' + name);
+                if (!input || !input.value.trim()) continue;
+                total++;
+                showStatus(name, 'loading', '...');
+                try {
+                    const res = await fetch('/settings/test/path', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({path: input.value.trim()})
+                    });
+                    const data = await res.json();
+                    if (data.success && data.writable !== false) {
+                        showStatus(name, 'ok');
+                        ok++;
+                    } else if (data.success && data.writable === false) {
+                        showStatus(name, 'no-perm');
+                        fail++;
+                    } else {
+                        showStatus(name, 'not-found');
+                        fail++;
+                    }
+                } catch(e) {
+                    showStatus(name, 'not-found');
+                    fail++;
+                }
+            }
+            resultEl.innerHTML = `<span class="status-dot ${fail === 0 ? 'green' : 'red'}"></span>${ok}/${total} rutas OK, ${fail} con problemas`;
+            resultEl.style.color = fail === 0 ? 'green' : 'red';
+        }
+
+        async function createMissingPaths() {
+            const resultEl = document.getElementById('test-result');
+            resultEl.textContent = 'Creando carpetas que faltan...';
+            resultEl.style.color = '#666';
+            const paths = [];
+            for (const name of pathFields) {
+                const input = document.getElementById('input-' + name);
+                if (input && input.value.trim()) {
+                    paths.push(input.value.trim());
+                }
+            }
+            try {
+                const res = await fetch('/settings/test/path-create', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({paths: paths})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    resultEl.innerHTML = '<span class="status-dot green"></span>' + (data.message || 'Carpetas creadas correctamente.');
+                    resultEl.style.color = 'green';
+                    for (const name of pathFields) {
+                        const input = document.getElementById('input-' + name);
+                        if (input && input.value.trim()) {
+                            showStatus(name, 'ok');
+                        }
+                    }
+                } else {
+                    resultEl.innerHTML = '<span class="status-dot red"></span>' + (data.message || 'Error al crear carpetas.');
+                    resultEl.style.color = 'red';
+                }
+            } catch(e) {
+                resultEl.innerHTML = '<span class="status-dot red"></span>Error de conexion.';
+                resultEl.style.color = 'red';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuración - Telegram</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; font-size: 14px; }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;
+        }
+        input[type="checkbox"] { margin-right: 8px; width: 18px; height: 18px; vertical-align: middle; }
+        .btn { background: #0066cc; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 14px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; font-size: 15px; padding: 10px 20px; }
+        .btn-save:hover { background: #218838; }
+        .btn-test { background: #6c757d; }
+        .btn-test:hover { background: #5a6268; }
+        .btn-teal { background: #17a2b8; }
+        .btn-teal:hover { background: #138496; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-warning { background: #ffc107; color: #333; }
+        .btn-warning:hover { background: #e0a800; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .help-text { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .section-box.disabled { opacity: 0.5; pointer-events: none; }
+        .input-row { display: flex; gap: 15px; }
+        .input-row .form-group { flex: 1; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .test-output { margin-top: 12px; font-weight: bold; font-size: 13px; min-height: 18px; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+        .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-row .desc { flex: 1; }
+        .toggle-row .desc .label { display: block; font-weight: 600; font-size: 14px; color: #333; }
+        .toggle-row .desc .hint { display: block; font-size: 12px; color: #888; margin-top: 2px; }
+        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 24px; transition: .3s; }
+        .toggle-switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; }
+        .toggle-switch input:checked + .slider { background-color: #28a745; }
+        .toggle-switch input:checked + .slider:before { transform: translateX(20px); }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>2. Telegram</h2>
+            {% if success %}
+            <div class="alert">Configuración guardada correctamente.</div>
+            {% endif %}
+            <form id="telegram-form" action="/settings/telegram" method="POST">
+
+                <div class="section-box">
+                    <h3>Activar notificaciones</h3>
+                    <div class="toggle-row">
+                        <div class="desc">
+                            <span class="label">
+                                <input type="hidden" name="setting_telegram_enabled" id="val_telegram_enabled" value="{{ values.telegram_enabled }}">
+                                <label for="toggle-telegram-enabled" style="cursor:pointer">Activar notificaciones por Telegram</label>
+                            </span>
+                            <span class="hint">Envía alertas cuando el pipeline falla, cuando hay errores críticos, y notificaciones de estado.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-telegram-enabled" onchange="document.getElementById('val_telegram_enabled').value=this.checked" {% if values.telegram_enabled == True or values.telegram_enabled == 'true' %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="section-box">
+                    <h3>Configuración del Bot</h3>
+
+                    <div style="padding:12px; background:#e8f4fd; border-radius:6px; border:1px solid #cce0ff; margin-bottom:12px;">
+                        Para configurar Telegram: 1) Crea un bot desde @BotFather y copia el token. 2) Envía un mensaje a tu bot. 3) Visita https://api.telegram.org/bot&lt;TU_TOKEN&gt;/getUpdates para obtener el chat_id. 4) Pega ambos valores aquí.
+                    </div>
+
+                    <div class="form-group">
+                        <label>Bot Token</label>
+                        <input type="password" name="setting_telegram_bot_token" value="{{ values.telegram_bot_token or '' }}">
+                        <input type="hidden" name="secret_telegram_bot_token" value="on">
+                        <span class="help-text">Token del bot obtenido desde @BotFather en Telegram.</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Chat ID</label>
+                        <input type="text" name="setting_telegram_chat_id" value="{{ values.telegram_chat_id or '' }}">
+                        <span class="help-text">ID numérico del chat o canal. Envía un mensaje a @userinfobot para obtenerlo.</span>
+                    </div>
+
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-test" onclick="testTelegram()">Probar Telegram</button>
+                    </div>
+                    <div id="test-result" class="test-output"></div>
+                </div>
+
+                <hr style="border:0; border-top:1px solid #eee; margin: 25px 0;">
+                <button type="submit" class="btn btn-save">Guardar Configuración</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('telegram-form').addEventListener('submit', function() {
+            document.getElementById('val_telegram_enabled').value = document.getElementById('toggle-telegram-enabled').checked;
+        });
+
+        async function testTelegram() {
+            const el = document.getElementById('test-result');
+            el.textContent = 'Probando conexión con Telegram...';
+            el.style.color = '#666';
+            try {
+                const res = await fetch('/settings/test/telegram', { method: 'POST' });
+                const data = await res.json();
+                el.innerHTML = '<span class="status-dot ' + (data.success ? 'green' : 'red') + '"></span>' + (data.message || '');
+                el.style.color = data.success ? 'green' : 'red';
+            } catch(e) {
+                el.textContent = 'Error de conexión.';
+                el.style.color = 'red';
+            }
+        }
+    </script>
+</body>
+</html>

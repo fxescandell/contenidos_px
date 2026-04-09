@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuracion - OCR e IA</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; font-size: 14px; }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;
+        }
+        .btn { background: #0066cc; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; font-size: 15px; padding: 10px 20px; }
+        .btn-save:hover { background: #218838; }
+        .btn-test { background: #6c757d; }
+        .btn-test:hover { background: #5a6268; }
+        .btn-teal { background: #17a2b8; }
+        .btn-teal:hover { background: #138496; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .help-text { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .section-box p.desc { font-size: 13px; color: #666; margin: 0 0 15px 0; line-height: 1.5; }
+        .input-row { display: flex; gap: 10px; align-items: flex-start; }
+        .input-row .form-group { flex: 1; margin-bottom: 0; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .test-output { margin-top: 12px; font-weight: bold; font-size: 13px; min-height: 18px; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+        .status-dot.gray { background: #aaa; }
+
+        .conn-card { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; overflow: hidden; }
+        .conn-card.disabled-conn { opacity: 0.5; }
+        .conn-card.active-conn { border-color: #28a745; border-width: 2px; }
+        .conn-header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #f8f9fa; border-bottom: 1px solid #ddd; }
+        .conn-header input[type="text"] { font-size: 15px; font-weight: 600; }
+        .conn-header .star { cursor: pointer; font-size: 20px; color: #ccc; transition: color .2s; }
+        .conn-header .star.active { color: #f0ad4e; }
+        .conn-body { padding: 16px; }
+        .conn-test-result { margin-top: 10px; padding: 8px 12px; border-radius: 4px; font-size: 12px; display: none; }
+        .conn-test-result.ok { background: #d4edda; color: #155724; display: block; }
+        .conn-test-result.fail { background: #f8d7da; color: #721c24; display: block; }
+        .conn-test-result.loading { background: #fff3cd; color: #856404; display: block; }
+        .color-badge { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 4px; flex-shrink: 0; }
+        .vision-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .vision-badge.yes { background: #d4edda; color: #155724; }
+        .vision-badge.no { background: #f0f0f0; color: #888; }
+        .models-loading { color: #888; font-style: italic; }
+        .active-label { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #28a745; color: white; }
+        .apikey-row { display: flex; gap: 6px; align-items: center; }
+        .apikey-row input { flex: 1; }
+        .apikey-toggle { background: none; border: 1px solid #ccc; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 14px; color: #666; }
+        .apikey-toggle:hover { background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>7. OCR e Inteligencia Artificial</h2>
+            {% if success %}
+            <div class="alert">Configuracion guardada correctamente.</div>
+            {% endif %}
+            <form id="ai-form" action="/settings/ai" method="POST">
+
+                <!-- CONEXIONES LLM -->
+                <div class="section-box">
+                    <h3>Conexiones LLM</h3>
+                    <p class="desc">Configura multiples proveedores de IA (OpenAI, Anthropic, Groq, Mistral, Gemini, Ollama...). Marca una como activa para usarla en el pipeline. Pulsa "Cargar modelos" para ver los modelos disponibles de cada proveedor.</p>
+                    <div id="connections-container"></div>
+                    <button type="button" class="btn btn-test" onclick="addConnection()">+ Anadir conexion</button>
+                </div>
+
+                <!-- OCR -->
+                <div class="section-box">
+                    <h3>OCR (Reconocimiento de texto)</h3>
+                    <p class="desc">Extrae texto de imagenes y documentos escaneados. Elige un motor tradicional o usa un modelo de IA con capacidades visuales.</p>
+
+                    <div class="form-group" style="max-width: 350px;">
+                        <label for="ocr_engine">Motor OCR</label>
+                        <select id="ocr_engine" name="setting_ocr_engine" onchange="onOcrEngineChange()">
+                            <option value="disabled" {% if values.ocr_engine == 'disabled' %}selected{% endif %}>Desactivado</option>
+                            <option value="tesseract" {% if values.ocr_engine == 'tesseract' %}selected{% endif %}>Tesseract</option>
+                            <option value="paddleocr" {% if values.ocr_engine == 'paddleocr' %}selected{% endif %}>PaddleOCR</option>
+                            <option value="azure_vision" {% if values.ocr_engine == 'azure_vision' %}selected{% endif %}>Azure AI Vision</option>
+                            <option value="ai_vision" {% if values.ocr_engine == 'ai_vision' %}selected{% endif %}>Vision IA (modelo LLM)</option>
+                        </select>
+                        <span class="help-text">"Vision IA" usa un modelo con capacidades visuales (GPT-4o, Claude, Gemini...) para leer imagenes.</span>
+                    </div>
+
+                    <div id="ocr-traditional-fields">
+                        <div class="input-row">
+                            <div class="form-group" style="max-width: 250px;">
+                                <label>Idiomas</label>
+                                <input type="text" name="setting_ocr_language" value="{{ values.ocr_language or 'cat+spa' }}">
+                                <span class="help-text">Separados por + (cat+spa, eng, spa).</span>
+                            </div>
+                            <div class="form-group" style="max-width: 150px;">
+                                <label>DPI</label>
+                                <input type="number" name="setting_ocr_dpi" value="{{ values.ocr_dpi or 300 }}" min="72" max="600">
+                                <span class="help-text">Resolucion de escaneo.</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="ocr-vision-fields" style="display:none;">
+                        <div class="form-group" style="max-width: 450px;">
+                            <label>Conexion para Vision IA</label>
+                            <select id="ocr_vision_connection" name="setting_ocr_vision_connection_id" onchange="syncVisionConnId()">
+                                <option value="">-- Selecciona una conexion con vision --</option>
+                            </select>
+                            <span class="help-text">Solo se muestran conexiones habilitadas con un modelo que soporta vision. La conexion debe estar configurada en la seccion superior.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PRUEBAS -->
+                <div class="section-box">
+                    <h3>Pruebas</h3>
+                    <p class="desc">Verifica la conexion con los proveedores de IA configurados.</p>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-test" onclick="testActiveLlm()">Probar conexion activa</button>
+                    </div>
+                    <div id="test-result" class="test-output"></div>
+                </div>
+
+                <hr style="border:0; border-top:1px solid #eee; margin: 25px 0;">
+                <input type="hidden" name="llm_connections_json" id="connections-json-input">
+                <button type="submit" class="btn btn-save">Guardar Configuracion</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const PROVIDERS = {
+            openai:    { label: "OpenAI",         color: "#10a37f" },
+            anthropic: { label: "Anthropic",       color: "#d4a574" },
+            azure:     { label: "Azure OpenAI",    color: "#0078d4" },
+            ollama:    { label: "Ollama (local)",  color: "#666" },
+            groq:      { label: "Groq",            color: "#f55036" },
+            mistral:   { label: "Mistral AI",      color: "#ff7000" },
+            gemini:    { label: "Google Gemini",   color: "#4285f4" }
+        };
+
+        let connections = {{ connections_json | safe }};
+        const savedVisionConnId = "{{ values.ocr_vision_connection_id or '' }}";
+
+        function escapeHtml(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function syncJsonInput() {
+            document.getElementById('connections-json-input').value = JSON.stringify(connections);
+        }
+
+        function addConnection() {
+            connections.push({
+                id: crypto.randomUUID(),
+                name: "Nueva conexion",
+                provider: "openai",
+                api_key: "",
+                model: "",
+                temperature: 0.3,
+                enabled: true,
+                active: !connections.some(c => c.active),
+                models: []
+            });
+            renderConnections();
+        }
+
+        function removeConnection(i) {
+            const wasActive = connections[i].active;
+            connections.splice(i, 1);
+            if (wasActive && connections.length > 0) {
+                connections[0].active = true;
+            }
+            renderConnections();
+        }
+
+        function toggleEnabled(i) {
+            connections[i].enabled = !connections[i].enabled;
+            if (!connections[i].enabled && connections[i].active) {
+                connections[i].active = false;
+                const next = connections.find(c => c.enabled);
+                if (next) next.active = true;
+            }
+            renderConnections();
+        }
+
+        function setActive(i) {
+            connections.forEach((c, idx) => c.active = (idx === i && c.enabled));
+            renderConnections();
+        }
+
+        function updateField(i, field, value) {
+            connections[i][field] = value;
+            if (field === 'provider') {
+                connections[i].models = [];
+                connections[i].model = '';
+            }
+            syncJsonInput();
+        }
+
+        function toggleApiKeyVisibility(i) {
+            const inp = document.getElementById('apikey-' + i);
+            const btn = document.getElementById('apikey-btn-' + i);
+            if (inp.type === 'password') {
+                inp.type = 'text';
+                btn.textContent = 'Ocultar';
+            } else {
+                inp.type = 'password';
+                btn.textContent = 'Mostrar';
+            }
+        }
+
+        async function fetchModels(i) {
+            const c = connections[i];
+            const resultEl = document.getElementById('conn-result-' + i);
+            const modelSelect = document.getElementById('model-' + i);
+            if (!c.api_key && c.provider !== 'ollama') {
+                resultEl.className = 'conn-test-result fail';
+                resultEl.innerHTML = '<span class="status-dot red"></span>Introduce la API Key primero.';
+                return;
+            }
+            resultEl.className = 'conn-test-result loading';
+            resultEl.textContent = 'Cargando modelos de ' + (PROVIDERS[c.provider]?.label || c.provider) + '...';
+            modelSelect.innerHTML = '<option value="" class="models-loading">Cargando...</option>';
+            try {
+                const res = await fetch('/settings/test/fetch-models', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ provider: c.provider, api_key: c.api_key })
+                });
+                const data = await res.json();
+                if (data.success && data.models.length > 0) {
+                    connections[i].models = data.models;
+                    let html = '<option value="">-- Selecciona un modelo --</option>';
+                    data.models.forEach(m => {
+                        const sel = m.id === c.model ? 'selected' : '';
+                        const visionTag = m.vision ? ' [VISION]' : '';
+                        html += `<option value="${escapeHtml(m.id)}" data-vision="${m.vision}" ${sel}>${escapeHtml(m.name)}${visionTag}</option>`;
+                    });
+                    modelSelect.innerHTML = html;
+                    resultEl.className = 'conn-test-result ok';
+                    resultEl.innerHTML = '<span class="status-dot green"></span>' + data.message;
+                    updateVisionBadge(i);
+                } else {
+                    modelSelect.innerHTML = '<option value="">-- Sin modelos --</option>';
+                    resultEl.className = 'conn-test-result fail';
+                    resultEl.innerHTML = '<span class="status-dot red"></span>' + (data.message || 'No se encontraron modelos.');
+                }
+            } catch(e) {
+                modelSelect.innerHTML = '<option value="">-- Error --</option>';
+                resultEl.className = 'conn-test-result fail';
+                resultEl.textContent = 'Error de conexion.';
+            }
+            syncJsonInput();
+        }
+
+        function onModelChange(i) {
+            const sel = document.getElementById('model-' + i);
+            connections[i].model = sel.value;
+            syncJsonInput();
+            updateVisionBadge(i);
+            updateVisionSelector();
+        }
+
+        function updateVisionBadge(i) {
+            const sel = document.getElementById('model-' + i);
+            const badge = document.getElementById('vision-badge-' + i);
+            if (!sel || !badge) return;
+            const opt = sel.selectedOptions[0];
+            if (opt && opt.dataset.vision === 'true') {
+                badge.className = 'vision-badge yes';
+                badge.textContent = 'Vision';
+            } else {
+                badge.className = 'vision-badge no';
+                badge.textContent = 'Solo texto';
+            }
+        }
+
+        async function testConnection(i) {
+            const c = connections[i];
+            const resultEl = document.getElementById('conn-result-' + i);
+            resultEl.className = 'conn-test-result loading';
+            resultEl.textContent = 'Probando ' + (c.name || c.provider) + '...';
+            try {
+                const res = await fetch('/settings/test/llm', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ connection_id: c.id })
+                });
+                const data = await res.json();
+                resultEl.className = 'conn-test-result ' + (data.success ? 'ok' : 'fail');
+                resultEl.innerHTML = '<span class="status-dot ' + (data.success ? 'green' : 'red') + '"></span>' + escapeHtml(data.message);
+            } catch(e) {
+                resultEl.className = 'conn-test-result fail';
+                resultEl.textContent = 'Error de conexion.';
+            }
+        }
+
+        async function testActiveLlm() {
+            const el = document.getElementById('test-result');
+            el.innerHTML = '<span class="status-dot gray"></span>Probando conexion activa...';
+            el.style.color = '#666';
+            try {
+                const res = await fetch('/settings/test/llm', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+                el.innerHTML = '<span class="status-dot ' + (data.success ? 'green' : 'red') + '"></span>' + escapeHtml(data.message);
+                el.style.color = data.success ? 'green' : 'red';
+            } catch(e) {
+                el.innerHTML = '<span class="status-dot red"></span>Error de conexion.';
+                el.style.color = 'red';
+            }
+        }
+
+        function updateVisionSelector() {
+            const sel = document.getElementById('ocr_vision_connection');
+            if (!sel) return;
+            const currentVal = sel.value;
+            sel.innerHTML = '<option value="">-- Selecciona una conexion con vision --</option>';
+            connections.forEach(c => {
+                if (!c.enabled || !c.model) return;
+                const hasVision = c.models.some(m => m.id === c.model && m.vision);
+                if (!hasVision) {
+                    const opt = document.getElementById('model-' + connections.indexOf(c));
+                    if (opt) {
+                        const selectedOpt = opt.selectedOptions[0];
+                        if (selectedOpt && selectedOpt.dataset.vision === 'true') {
+                            // Has vision from current selection
+                        } else return;
+                    } else return;
+                }
+                const prov = PROVIDERS[c.provider]?.label || c.provider;
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = `${c.name} (${prov} / ${c.model})`;
+                sel.appendChild(opt);
+            });
+            sel.value = currentVal;
+        }
+
+        function syncVisionConnId() {
+            // handled by form submission
+        }
+
+        function onOcrEngineChange() {
+            const engine = document.getElementById('ocr_engine').value;
+            document.getElementById('ocr-traditional-fields').style.display = (engine === 'ai_vision') ? 'none' : '';
+            document.getElementById('ocr-vision-fields').style.display = (engine === 'ai_vision') ? '' : 'none';
+            if (engine === 'ai_vision') {
+                updateVisionSelector();
+                document.getElementById('ocr_vision_connection').value = savedVisionConnId;
+            }
+        }
+
+        function renderConnections() {
+            const container = document.getElementById('connections-container');
+            container.innerHTML = '';
+            if (connections.length === 0) {
+                container.innerHTML = '<div style="padding:20px; text-align:center; color:#888; border:1px dashed #ddd; border-radius:8px;">No hay conexiones configuradas. Pulsa "Anadir conexion" para empezar.</div>';
+                syncJsonInput();
+                return;
+            }
+            connections.forEach((c, i) => {
+                const prov = PROVIDERS[c.provider] || { label: c.provider, color: '#999' };
+                const isActive = c.active && c.enabled;
+                const cardClass = (!c.enabled ? 'disabled-conn' : '') + (isActive ? ' active-conn' : '');
+                container.innerHTML += `
+                <div class="conn-card ${cardClass}" id="conn-${i}">
+                    <div class="conn-header">
+                        <label style="display:flex;align-items:center;cursor:pointer;margin:0;">
+                            <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleEnabled(${i})" style="width:18px;height:18px;" title="Activar/Desactivar">
+                        </label>
+                        <span class="star ${isActive ? 'active' : ''}" onclick="setActive(${i})" title="${isActive ? 'Conexion activa' : 'Marcar como activa'}">${isActive ? '&#9733;' : '&#9734;'}</span>
+                        <span class="color-badge" style="background:${prov.color};"></span>
+                        <input type="text" value="${escapeHtml(c.name)}" onchange="updateField(${i},'name',this.value)" placeholder="Nombre de la conexion" style="flex:1;max-width:220px;">
+                        ${isActive ? '<span class="active-label">ACTIVA</span>' : ''}
+                        <button type="button" class="btn btn-danger btn-sm" onclick="removeConnection(${i})" title="Eliminar">X</button>
+                    </div>
+                    <div class="conn-body">
+                        <div class="input-row" style="margin-bottom:12px;">
+                            <div class="form-group" style="max-width:220px;">
+                                <label>Proveedor</label>
+                                <select onchange="updateField(${i},'provider',this.value); renderConnections()">
+                                    ${Object.entries(PROVIDERS).map(([k,v]) => `<option value="${k}" ${c.provider===k?'selected':''}>${v.label}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="form-group" style="max-width:120px;">
+                                <label>Temperatura</label>
+                                <input type="number" value="${c.temperature}" step="0.1" min="0" max="2" onchange="updateField(${i},'temperature',parseFloat(this.value)||0.3)">
+                                <span class="help-text">0.0-1.0</span>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>API Key ${c.provider === 'ollama' ? '' : ''}</label>
+                            <div class="apikey-row">
+                                <input type="password" id="apikey-${i}" value="${escapeHtml(c.api_key)}" onchange="updateField(${i},'api_key',this.value)" placeholder="${c.provider === 'ollama' ? 'No necesaria para Ollama local' : 'sk-...'}" ${c.provider === 'ollama' ? 'disabled' : ''}>
+                                <button type="button" class="apikey-toggle" id="apikey-btn-${i}" onclick="toggleApiKeyVisibility(${i})">Mostrar</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Modelo</label>
+                            <div class="apikey-row">
+                                <select id="model-${i}" onchange="onModelChange(${i})">
+                                    ${c.models.length > 0
+                                        ? '<option value="">-- Selecciona un modelo --</option>' + c.models.map(m => `<option value="${escapeHtml(m.id)}" data-vision="${m.vision}" ${m.id===c.model?'selected':''}>${escapeHtml(m.name)}${m.vision?' [VISION]':''}</option>`).join('')
+                                        : '<option value="">-- Pulsa "Cargar modelos" --</option>' + (c.model ? `<option value="${escapeHtml(c.model)}" selected>${escapeHtml(c.model)}</option>` : '')
+                                    }
+                                </select>
+                                <button type="button" class="btn btn-teal btn-sm" onclick="fetchModels(${i})">Cargar modelos</button>
+                            </div>
+                            <span id="vision-badge-${i}" class="vision-badge no">${c.models.find(m=>m.id===c.model)?.vision ? 'Vision' : 'Solo texto'}</span>
+                        </div>
+                        <div class="btn-group" style="margin-top:8px;">
+                            <button type="button" class="btn btn-test btn-sm" onclick="testConnection(${i})">Probar esta conexion</button>
+                        </div>
+                        <div id="conn-result-${i}" class="conn-test-result"></div>
+                    </div>
+                </div>`;
+            });
+            syncJsonInput();
+        }
+
+        document.getElementById('ai-form').addEventListener('submit', function() {
+            syncJsonInput();
+            const engine = document.getElementById('ocr_engine').value;
+            if (engine !== 'ai_vision') {
+                document.getElementById('ocr_vision_connection').value = '';
+            }
+        });
+
+        renderConnections();
+        onOcrEngineChange();
+        setTimeout(() => {
+            document.getElementById('ocr_vision_connection').value = savedVisionConnId;
+        }, 100);
+    </script>
+</body>
+</html>

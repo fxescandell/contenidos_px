@@ -1,0 +1,740 @@
+Actúa como un arquitecto de software senior y desarrollador principal especializado en Python, FastAPI, procesamiento documental, OCR, automatización editorial y WordPress.
+
+Quiero que diseñes e implementes una aplicación técnica real, robusta y mantenible para automatizar la creación y actualización de contenido en un único sitio WordPress a partir de archivos que llegan a una carpeta caliente.
+
+========================
+1. OBJETIVO TÉCNICO
+========================
+
+La aplicación debe ejecutarse como un servicio externo en Docker y hacer esto:
+
+1. vigilar una carpeta caliente ubicada en un Synology
+2. detectar nuevos lotes de contenido
+3. copiar esos lotes a una zona interna de trabajo
+4. calcular hashes para evitar reprocesados
+5. agrupar archivos por artículo candidato
+6. extraer texto de PDF, DOCX e imágenes
+7. aplicar OCR cuando haga falta
+8. clasificar municipio, categoría y subtipo
+9. redactar o ampliar contenido cuando sea necesario, sin inventar datos
+10. optimizar imágenes
+11. construir la estructura final del artículo
+12. mapear el contenido al formato WordPress requerido
+13. generar JSON compatible con un sistema de importación existente
+14. dejar el contenido listo para importar
+15. marcar como pendiente de revisión cuando haya dudas
+16. enviar avisos por Telegram
+17. permitir reprocesado manual o automático si cambia el lote
+
+La prioridad es:
+- robustez
+- claridad del código
+- trazabilidad
+- facilidad de mantenimiento
+- bajo acoplamiento
+- capacidad de ampliar reglas por categoría
+
+No quiero una app SaaS multiusuario.
+No quiero una solución genérica para miles de clientes.
+Quiero una solución específica para un único WordPress.
+
+========================
+2. CONTEXTO FUNCIONAL
+========================
+
+El sitio WordPress trabaja con varios CPT separados por tipo de contenido.
+La taxonomía de municipio está compartida entre todos los CPT.
+
+Municipios principales:
+- Cerdanya
+- Maresme
+- Berguedà
+- General
+
+Categorías/CPT:
+- agenda
+- noticies
+- esports
+- turisme actiu
+- nens i joves
+- cultura
+- gastronomia
+- consells
+- entrevistes
+
+Casos especiales:
+- cultura tiene dos variantes internas: cultura general y libros
+- gastronomia tiene dos variantes internas: gastronomía general y receta
+- agenda tiene campos más sensibles y debe validarse mejor
+- algunos contenidos solo llegan como cartel en imagen
+- algunos contenidos llegan como carpeta con DOCX + imágenes
+- algunos contenidos llegan como PDF individual
+- en una fase futura quiero poder procesar un PDF completo de revista y separarlo automáticamente en artículos independientes
+
+========================
+3. RESTRICCIONES IMPORTANTES
+========================
+
+- No inventar datos jamás.
+- El sistema puede mejorar redacción, ordenar texto y ampliarlo un poco, pero no puede inventar fechas, nombres, lugares ni hechos.
+- No confiar en el nombre del archivo para evitar duplicados.
+- La detección de duplicados debe hacerse por hash de archivo y hash de lote.
+- Si el contenido ya fue procesado y no ha cambiado, no debe reprocesarse.
+- Si el lote cambió, debe poder reprocesarse.
+- Si hay dudas, el estado final debe ser "pending review" o equivalente.
+- La imagen destacada es obligatoria.
+- Si no hay imagen destacada posible, es un error crítico.
+- La V1 debe generar JSON compatible con un importador existente.
+- La publicación directa a WordPress debe diseñarse como extensión futura, no como dependencia obligatoria de la V1.
+
+========================
+4. ENTRADAS SOPORTADAS
+========================
+
+La aplicación debe soportar:
+- carpetas
+- subcarpetas
+- PDF digital
+- PDF escaneado
+- DOCX
+- JPG
+- PNG
+
+Escenarios reales:
+- carpeta raíz como "cerdanya 320"
+- subcarpetas por categoría
+- carpetas por artículo
+- archivos mezclados dentro de carpetas generales
+- DOCX con contenido y varias imágenes asociadas
+- cartel único del que hay que extraer texto por OCR
+- PDF individual de un artículo
+- futuro: PDF completo de revista
+
+========================
+5. ESTRATEGIA GENERAL
+========================
+
+Implementa arquitectura modular por capas.
+
+Debes separar claramente:
+- configuración
+- base de datos
+- modelos
+- servicios de ingesta
+- extracción documental
+- OCR
+- clasificación
+- redacción/editorial
+- procesado de imágenes
+- adaptadores WordPress
+- generación de JSON
+- notificaciones
+- panel mínimo
+- tareas de reprocesado
+
+La app debe ser fácil de entender y fácil de modificar.
+
+========================
+6. STACK TÉCNICO OBLIGATORIO
+========================
+
+Usa:
+- Python 3.12
+- FastAPI
+- SQLAlchemy 2.x
+- Alembic
+- Pydantic v2
+- PostgreSQL preferiblemente, aunque SQLite puede admitirse para desarrollo local
+- watchdog
+- Pillow
+- python-docx
+- PyMuPDF o pdfplumber
+- Tesseract OCR o PaddleOCR
+- httpx
+- Jinja2 para panel simple
+- Docker
+- docker-compose
+
+Opcional pero recomendado:
+- Celery o RQ en V2 si realmente aporta valor
+- Redis solo si es necesario
+- structlog o logging estándar bien configurado
+
+========================
+7. ESTRUCTURA DE PROYECTO
+========================
+
+Quiero una estructura parecida a esta:
+
+app/
+  api/
+    routes/
+    dependencies/
+  core/
+    logging.py
+    security.py
+    utils.py
+  config/
+    settings.py
+  db/
+    base.py
+    session.py
+    models/
+    repositories/
+    migrations/
+  schemas/
+  services/
+    watcher/
+    ingestion/
+    grouping/
+    extraction/
+    ocr/
+    classification/
+    editorial/
+    images/
+    wordpress/
+    import_json/
+    telegram/
+  adapters/
+    agenda.py
+    noticies.py
+    esports.py
+    turisme_actiu.py
+    nens_i_joves.py
+    cultura.py
+    gastronomia.py
+    consells.py
+    entrevistes.py
+  templates/
+  static/
+  tests/
+  main.py
+
+Explícame si propones una variante mejor, pero mantén el código organizado y modular.
+
+========================
+8. MODELO DE DATOS
+========================
+
+Diseña un modelo de datos real con SQLAlchemy y Alembic.
+
+Debes proponer e implementar tablas como mínimo para:
+
+1. source_batches
+- id
+- external_name
+- source_path
+- working_path
+- source_hash
+- municipality_hint
+- category_hint
+- detected_at
+- processed_at
+- status
+- error_message
+- created_at
+- updated_at
+
+2. source_files
+- id
+- batch_id
+- original_path
+- working_path
+- file_name
+- extension
+- mime_type
+- file_size
+- sha256
+- role_hint
+- created_at
+
+3. content_candidates
+- id
+- batch_id
+- candidate_key
+- municipality
+- category
+- subtype
+- classification_confidence
+- extraction_confidence
+- grouping_confidence
+- status
+- needs_review
+- review_reason
+- created_at
+- updated_at
+
+4. extracted_documents
+- id
+- candidate_id
+- source_file_id
+- extraction_method
+- raw_text
+- cleaned_text
+- detected_language
+- metadata_json
+- created_at
+
+5. processed_images
+- id
+- candidate_id
+- source_file_id
+- original_path
+- optimized_path
+- width
+- height
+- format
+- file_size
+- sha256
+- is_featured
+- sort_order
+- created_at
+
+6. editorial_outputs
+- id
+- candidate_id
+- title
+- summary
+- content_html
+- content_blocks_json
+- structured_fields_json
+- ready_for_import
+- ready_for_publish
+- created_at
+- updated_at
+
+7. wordpress_exports
+- id
+- candidate_id
+- export_format
+- export_path
+- export_payload_json
+- import_status
+- imported_at
+- created_at
+
+8. processing_events
+- id
+- batch_id nullable
+- candidate_id nullable
+- level
+- event_type
+- message
+- payload_json
+- created_at
+
+Debes crear:
+- modelos SQLAlchemy
+- migraciones Alembic iniciales
+- índices útiles
+- restricciones razonables
+
+========================
+9. CONFIGURACIÓN
+========================
+
+Implementa configuración por variables de entorno con Pydantic Settings.
+
+Debes incluir:
+- APP_ENV
+- APP_DEBUG
+- DATABASE_URL
+- HOT_FOLDER_PATH
+- WORKING_FOLDER_PATH
+- IMPORT_OUTPUT_PATH
+- OCR_ENGINE
+- OCR_LANGUAGE
+- MAX_IMAGE_WIDTH
+- JPEG_QUALITY
+- TELEGRAM_BOT_TOKEN
+- TELEGRAM_CHAT_ID
+- LLM_PROVIDER
+- LLM_API_BASE
+- LLM_API_KEY
+- LLM_MODEL
+- AUTO_PUBLISH_CONFIDENCE_THRESHOLD
+- AUTO_REVIEW_CONFIDENCE_THRESHOLD
+
+Crea:
+- .env.example
+- validación de settings
+- valores por defecto sensatos
+- separación dev/prod si procede
+
+========================
+10. PIPELINE DE PROCESAMIENTO
+========================
+
+Implementa un pipeline claro y desacoplado.
+
+Fases:
+
+A. detect_batch()
+- detectar nuevo lote
+- registrar lote
+- copiar a working directory
+- calcular hash de lote
+
+B. scan_files()
+- listar archivos
+- detectar tipo MIME
+- registrar metadatos
+- calcular hash SHA256
+
+C. group_candidates()
+- agrupar archivos por artículo candidato
+- reglas:
+  - carpeta específica de artículo tiene prioridad
+  - documento principal + imágenes cercanas
+  - si no hay certeza, candidate marcado con baja confianza
+
+D. extract_content()
+- PDF digital: extracción nativa
+- PDF escaneado: OCR
+- DOCX: lectura estructurada
+- imagen: OCR
+- almacenar raw_text y cleaned_text
+
+E. classify_candidate()
+- municipio
+- categoría CPT
+- subtipo
+- usar:
+  1. reglas por carpeta
+  2. reglas por nombre de lote
+  3. reglas por contenido
+  4. LLM si es necesario
+- devolver score de confianza y razón de clasificación
+
+F. process_images()
+- optimizar
+- redimensionar a 2000 px máximo
+- JPG calidad 60 por defecto
+- permitir conversión PNG a JPG
+- dejar opción preparada para WebP
+- seleccionar featured image
+
+G. build_editorial_output()
+- generar título
+- resumen
+- contenido HTML final
+- distribución de imágenes
+- campos estructurados
+- nunca inventar datos
+- si faltan datos críticos, marcar revisión
+
+H. adapt_to_wordpress()
+- usar adapter por CPT
+- generar payload estructurado
+- generar JSON compatible con importador existente
+
+I. export_output()
+- guardar JSON
+- guardar metadatos
+- registrar evento
+- avisar por Telegram
+
+J. finalize_status()
+- si confianza alta y datos completos -> ready
+- si dudas -> pending review
+- si error crítico -> failed
+
+========================
+11. CLASIFICACIÓN HÍBRIDA
+========================
+
+Implementa una capa híbrida:
+
+1. reglas deterministas
+2. clasificador heurístico
+3. LLM como respaldo
+
+La clasificación debe devolver un objeto con:
+- municipality
+- category
+- subtype
+- confidence
+- signals
+- reasoning_summary
+
+Ejemplos de señales:
+- folder_match
+- batch_name_match
+- keyword_match
+- date_pattern_found
+- agenda_structure_found
+- recipe_structure_found
+- book_structure_found
+- content_contradiction
+
+Nunca uses solo el LLM como única fuente de decisión.
+
+========================
+12. EXTRACCIÓN Y OCR
+========================
+
+Implementa componentes separados:
+
+- PdfTextExtractor
+- PdfOcrExtractor
+- DocxExtractor
+- ImageOcrExtractor
+
+Cada extractor debe devolver:
+- raw_text
+- cleaned_text
+- metadata
+- extraction_confidence
+- extraction_method
+
+Debes implementar limpieza básica:
+- espacios repetidos
+- saltos de línea innecesarios
+- caracteres raros
+- normalización simple
+
+========================
+13. CAPA EDITORIAL
+========================
+
+Quiero un servicio editorial que reciba:
+- texto extraído
+- categoría detectada
+- subtipo
+- imágenes disponibles
+- metadatos detectados
+
+Y devuelva:
+- título final
+- resumen
+- contenido final en HTML
+- campos estructurados
+- observaciones
+- warnings
+
+Reglas:
+- si el texto fuente ya es bueno, respetarlo
+- si está demasiado corto, ampliarlo un poco sin inventar
+- si solo hay cartel, generar una pieza breve útil
+- si hay 1 o 2 imágenes, permitir inserción entre el contenido
+- si hay muchas, preferir galería o mezcla
+- si hay bloques internos claros con imágenes asociables, intentar colocarlas por sección
+- agenda debe validarse con especial cuidado
+- featured image es obligatoria
+
+Debes encapsular la lógica LLM en una interfaz como:
+- BaseEditorialEnhancer
+- LlmEditorialEnhancer
+- SafeEditorialFormatter
+
+========================
+14. ADAPTERS WORDPRESS
+========================
+
+Implementa una capa de adaptadores por CPT:
+
+- AgendaAdapter
+- NoticiesAdapter
+- EsportsAdapter
+- TurismeActiuAdapter
+- NensIJovesAdapter
+- CulturaAdapter
+- GastronomiaAdapter
+- ConsellsAdapter
+- EntrevistesAdapter
+
+Todos deben heredar de una clase base común.
+
+Cada adapter debe:
+- validar campos obligatorios
+- construir payload final
+- mapear taxonomía municipio
+- mapear featured_image
+- construir post_content
+- decidir si está listo para importación
+- devolver errores y warnings
+
+Casos especiales:
+- CulturaAdapter debe distinguir libro vs cultura general
+- GastronomiaAdapter debe distinguir receta vs general
+- AgendaAdapter debe validar campos de agenda con mayor rigor
+
+========================
+15. FORMATO DE EXPORTACIÓN
+========================
+
+La V1 debe exportar JSON compatible con un importador existente.
+Diseña una capa de exportación desacoplada.
+
+Clases:
+- BaseExportBuilder
+- WordPressJsonExportBuilder
+
+La exportación debe generar:
+- archivo JSON
+- payload serializable
+- ruta final de salida
+- referencias a imágenes
+- metadatos de lote y candidato
+
+No asumas publicación directa en WordPress como única vía.
+
+========================
+16. PANEL WEB MÍNIMO
+========================
+
+Implementa un panel mínimo con FastAPI + Jinja2.
+
+Pantallas mínimas:
+- listado de lotes
+- detalle de lote
+- listado de candidatos
+- detalle de candidato
+- vista de texto extraído
+- vista de clasificación
+- vista de salida editorial
+- vista de JSON exportado
+- botón de reprocesar
+- botón de marcar aprobado
+- botón de marcar revisión
+
+No hace falta diseño bonito.
+Solo funcional, limpio y simple.
+
+========================
+17. TELEGRAM
+========================
+
+Implementa un servicio simple de Telegram.
+
+Enviar mensajes cuando:
+- entra un lote nuevo
+- termina un lote
+- hay error crítico
+- hay candidatos pendientes de revisión
+- falla OCR
+- falla exportación
+
+Usa una clase dedicada:
+- TelegramNotifier
+
+========================
+18. LOGGING Y AUDITORÍA
+========================
+
+Implementa logging consistente.
+Quiero logs legibles y útiles.
+
+Registra:
+- inicio y fin de cada fase
+- errores con contexto
+- decisiones de clasificación
+- motivos de revisión
+- hashes
+- rutas
+- salida de exportación
+
+Además, guarda eventos clave en base de datos.
+
+========================
+19. TESTS
+========================
+
+Incluye tests reales mínimos para:
+- hashing
+- grouping
+- extractores
+- reglas de clasificación
+- adapters
+- exportación JSON
+
+Usa pytest.
+
+========================
+20. README
+========================
+
+Genera un README muy detallado con:
+- visión general
+- arquitectura
+- estructura de carpetas
+- variables de entorno
+- flujo completo
+- cómo levantar Docker
+- cómo configurar OCR
+- cómo probar con un lote real
+- cómo reprocesar
+- cómo extender reglas
+- limitaciones conocidas
+- roadmap de V2 y V3
+
+========================
+21. ORDEN DE ENTREGA
+========================
+
+No me devuelvas una explicación vaga.
+Quiero que construyas el proyecto por bloques completos y reales.
+
+Orden sugerido:
+1. árbol de proyecto
+2. settings y configuración
+3. modelos SQLAlchemy
+4. migración inicial Alembic
+5. repositorios
+6. pipeline base
+7. extractores
+8. OCR
+9. clasificación
+10. procesado de imágenes
+11. capa editorial
+12. adapters WordPress
+13. exportación JSON
+14. panel FastAPI
+15. Telegram
+16. Docker
+17. tests
+18. README
+
+========================
+22. ESTILO DE CÓDIGO
+========================
+
+- código claro
+- muy legible
+- funciones pequeñas
+- nombres largos y descriptivos
+- typing completo
+- pocos atajos
+- nada de pseudocódigo si ya puedes implementar código real
+- comentarios útiles, no relleno
+- manejo de errores serio
+- separación limpia de responsabilidades
+
+========================
+23. ENTREGABLE INICIAL
+========================
+
+Empieza entregando:
+
+1. propuesta final de estructura del proyecto
+2. modelos de base de datos completos
+3. settings y .env.example
+4. pipeline base
+5. clases abstractas principales
+6. adapters base
+7. export builder base
+8. README inicial
+9. Dockerfile
+10. docker-compose.yml
+
+Cuando termines eso, continúa con la implementación del resto de módulos por fases, sin cambiar la arquitectura salvo que expliques claramente por qué.
+
+Si necesitas hacer una suposición técnica, elige la opción más robusta y mantenible y documenta la decisión.
+
+Recuerda:
+- no inventar datos
+- priorizar revisión si hay duda
+- featured image obligatoria
+- JSON en V1
+- WordPress directo en V2
+- PDF completo de revista en V3

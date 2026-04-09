@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Detalle Lote: {{ batch.external_name }}</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        a.back { color: #666; text-decoration: none; display: inline-block; margin-bottom: 20px; }
+        a.back:hover { color: #000; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .status-REVIEW_REQUIRED { background: #ffeeba; color: #856404; }
+        .status-EXPORTED { background: #d4edda; color: #155724; }
+        .status-FAILED { background: #f8d7da; color: #721c24; }
+        .btn { background: #0066cc; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 13px;}
+        .btn:hover { background: #0052a3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back">&larr; Volver al panel</a>
+        
+        <div class="card">
+            <h2>Lote: {{ batch.external_name }}</h2>
+            <p><strong>Ruta:</strong> {{ batch.original_path }}</p>
+            <p><strong>Estado:</strong> <span class="status-badge status-{{ batch.status.value }}">{{ batch.status.value }}</span></p>
+        </div>
+
+        <div class="card">
+            <h3>Candidatos a Artículo ({{ candidates|length }})</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID Candidato</th>
+                        <th>Agrupación</th>
+                        <th>Estado</th>
+                        <th>Acción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for candidate in candidates %}
+                    <tr>
+                        <td>{{ candidate.candidate_key }}</td>
+                        <td>{{ candidate.grouping_strategy.value }} ({{ (candidate.grouping_confidence * 100)|int }}%)</td>
+                        <td><span class="status-badge status-{{ candidate.status.value }}">{{ candidate.status.value }}</span></td>
+                        <td><a href="/candidate/{{ candidate.id }}" class="btn">Revisar</a></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4">No se detectaron candidatos en este lote.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

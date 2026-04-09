@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuracion - Publicacion (WordPress)</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; font-size: 14px; }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;
+        }
+        input[type="checkbox"] { margin-right: 8px; }
+        .btn { background: #0066cc; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; } .btn-save:hover { background: #218838; font-size: 15px; padding: 10px 20px; }
+        .btn-test { background: #6c757d; } .btn-test:hover { background: #5a6268; }
+        .btn-teal { background: #17a2b8; } .btn-teal:hover { background: #138496; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-danger { background: #dc3545; } .btn-danger:hover { background: #c82333; }
+        .btn-warning { background: #ffc107; color: #333; } .btn-warning:hover { background: #e0a800; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .help-text { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .section-box.disabled { opacity: 0.5; pointer-events: none; }
+        .input-row { display: flex; gap: 15px; }
+        .input-row .form-group { flex: 1; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .test-output { margin-top: 12px; font-weight: bold; font-size: 13px; min-height: 18px; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+        .toggle-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 24px; transition: 0.3s; }
+        .toggle-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: 0.3s; }
+        .toggle-switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 24px; transition: .3s; }
+        .toggle-switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; }
+        .toggle-switch input:checked + .slider { background-color: #28a745; }
+        .toggle-switch input:checked + .slider:before { transform: translateX(20px); }
+        .toggle-label { font-weight: 600; color: #444; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>6. Publicacion (WordPress)</h2>
+            {% if success %}
+            <div class="alert">Configuracion guardada correctamente.</div>
+            {% endif %}
+            <form id="publishing-form" action="/settings/publishing" method="POST">
+
+                <!-- ======================== MODO DE EXPORTACION ======================== -->
+                <div class="section-box">
+                    <h3>Modo de exportacion</h3>
+                    <p class="help-text" style="margin-bottom: 15px;">Define como se generan los ficheros de exportacion para WordPress.</p>
+                    <div class="form-group">
+                        <label>Modo de exportacion</label>
+                        <select name="setting_export_mode">
+                            <option value="per_batch" {% if values.export_mode == 'per_batch' %}selected{% endif %}>Por lote (un JSON por lote)</option>
+                            <option value="per_article" {% if values.export_mode == 'per_article' %}selected{% endif %}>Por articulo (un JSON por articulo)</option>
+                        </select>
+                    </div>
+                    <input type="hidden" name="setting_export_include_media" id="val_export_include_media" value="{{ 'true' if values.export_include_media else 'false' }}">
+                    <div class="toggle-row">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle_export_include_media" {% if values.export_include_media %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                        <div>
+                            <span class="toggle-label">Incluir medios en la exportacion</span>
+                            <span class="help-text">Anhade las URLs de imagenes y documentos adjuntos en el JSON exportado.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ======================== WORDPRESS REST API ======================== -->
+                <div class="section-box">
+                    <h3>WordPress REST API</h3>
+                    <p class="help-text" style="margin-bottom: 15px;">Configura la conexion con la API de WordPress para publicacion directa. Opcional: si no se configura, los JSON se exportan al outfolder.</p>
+                    <div class="form-group">
+                        <label>URL de la API REST</label>
+                        <input type="text" name="setting_wp_api_url" value="{{ values.wp_api_url or '' }}" placeholder="https://miweb.com/wp-json/wp/v2">
+                        <span class="help-text">URL base de la API REST de WordPress (ej: https://miweb.com/wp-json/wp/v2).</span>
+                    </div>
+                    <div class="input-row">
+                        <div class="form-group">
+                            <label>Usuario WordPress</label>
+                            <input type="text" name="setting_wp_username" value="{{ values.wp_username or '' }}" autocomplete="username">
+                            <span class="help-text">Usuario de WordPress con permisos de editor o administrador.</span>
+                        </div>
+                        <div class="form-group">
+                            <label>Contraseña de aplicacion</label>
+                            <input type="password" name="setting_wp_app_password" value="{{ values.wp_app_password or '' }}" autocomplete="current-password">
+                            <input type="hidden" name="secret_wp_app_password" value="on">
+                            <span class="help-text">Contrasena de aplicacion generada en tu perfil de WordPress (Perfil > Contrasenas de aplicacion).</span>
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <div class="form-group">
+                            <label>Estado por defecto</label>
+                            <select name="setting_wp_default_status">
+                                <option value="draft" {% if values.wp_default_status == 'draft' %}selected{% endif %}>Borrador</option>
+                                <option value="pending" {% if values.wp_default_status == 'pending' %}selected{% endif %}>Pendiente de revision</option>
+                                <option value="publish" {% if values.wp_default_status == 'publish' %}selected{% endif %}>Publicado</option>
+                            </select>
+                            <span class="help-text">Estado inicial de los articulos importados.</span>
+                        </div>
+                        <div class="form-group">
+                            <label>ID Autor por defecto</label>
+                            <input type="number" name="setting_wp_default_author_id" value="{{ values.wp_default_author_id or 1 }}" min="1">
+                            <span class="help-text">ID numerico del autor por defecto para los articulos importados.</span>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-test" onclick="testWpConnection()">Probar conexion WordPress</button>
+                    </div>
+                    <div id="wp-test-result" class="test-output"></div>
+                </div>
+
+                <hr style="border:0; border-top:1px solid #eee; margin: 25px 0;">
+                <button type="submit" class="btn btn-save">Guardar Configuracion</button>
+            </form>
+        </div>
+    </div>
+    <script>
+        document.getElementById('toggle_export_include_media').addEventListener('change', function() {
+            document.getElementById('val_export_include_media').value = this.checked ? 'true' : 'false';
+        });
+
+        document.getElementById('publishing-form').addEventListener('submit', function() {
+            document.getElementById('val_export_include_media').value =
+                document.getElementById('toggle_export_include_media').checked ? 'true' : 'false';
+        });
+
+        async function testWpConnection() {
+            const el = document.getElementById('wp-test-result');
+            el.textContent = 'Probando...';
+            el.style.color = '#666';
+            try {
+                const res = await fetch('/settings/test/wordpress', { method: 'POST' });
+                const data = await res.json();
+                el.innerHTML = `<span class="status-dot ${data.success ? 'green' : 'red'}"></span>${data.message}`;
+                el.style.color = data.success ? 'green' : 'red';
+            } catch (e) {
+                el.textContent = 'Error de conexion.';
+                el.style.color = 'red';
+            }
+        }
+    </script>
+</body>
+</html>

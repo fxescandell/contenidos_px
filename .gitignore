@@ -1,0 +1,164 @@
+# =========================
+# 🐍 PYTHON
+# =========================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+venv/
+env/
+ENV/
+.venv/
+
+# Archivos de configuración local
+.env
+.env.*
+
+# Distribución / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Archivos de logs
+*.log
+
+# Archivos de testing / coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# =========================
+# 🧠 IDEs / EDITORES
+# =========================
+
+# VSCode
+.vscode/
+
+# PyCharm / JetBrains
+.idea/
+
+# =========================
+# 🍏 macOS
+# =========================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Iconos y metadata
+Icon?
+._*
+
+# Carpetas del sistema
+.Spotlight-V100
+.Trashes
+
+# =========================
+# 🔒 OTROS
+# =========================
+
+# Archivos temporales
+*.tmp
+*.swp
+*~
+
+# SQLite (si no quieres subir DBs)
+*.sqlite3
+# =========================
+# 🐍 PYTHON
+# =========================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+venv/
+env/
+ENV/
+.venv/
+
+# Archivos de configuración local
+.env
+.env.*
+
+# Distribución / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Archivos de logs
+*.log
+
+# Archivos de testing / coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# =========================
+# 🧠 IDEs / EDITORES
+# =========================
+
+# VSCode
+.vscode/
+
+# PyCharm / JetBrains
+.idea/
+
+# =========================
+# 🍏 macOS
+# =========================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Iconos y metadata
+Icon?
+._*
+
+# Carpetas del sistema
+.Spotlight-V100
+.Trashes
+
+# =========================
+# 🔒 OTROS
+# =========================
+
+# Archivos temporales
+*.tmp
+*.swp
+*~
+
+# SQLite (si no quieres subir DBs)
+*.sqlite3
+*.db
+
+# =========================
+# 📦 OPCIONAL (ajusta según tu proyecto)
+# =========================
+
+# Datos o uploads (si tienes contenido dinámico)
+data/
+uploads/
+media/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+# =========================
+# 📦 OPCIONAL (ajusta según tu proyecto)
+# =========================
+
+# Datos o uploads (si tienes contenido dinámico)
+data/
+uploads/
+media/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/

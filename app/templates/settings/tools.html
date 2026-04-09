@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuracion - Herramientas y Test</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .btn { background: #0066cc; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; font-size: 15px; padding: 10px 20px; }
+        .btn-save:hover { background: #218838; }
+        .btn-test { background: #6c757d; }
+        .btn-test:hover { background: #5a6268; }
+        .btn-teal { background: #17a2b8; color: white; }
+        .btn-teal:hover { background: #138496; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .section-box p.desc { font-size: 13px; color: #666; margin: 0 0 15px 0; line-height: 1.5; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+        .status-dot.gray { background: #aaa; }
+        .status-dot.yellow { background: #ffc107; }
+
+        .test-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .test-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; transition: border-color .3s; }
+        .test-card.pass { border-color: #28a745; background: #fafff9; }
+        .test-card.fail { border-color: #dc3545; background: #fff5f5; }
+        .test-card.running { border-color: #ffc107; background: #fffdf0; }
+        .test-card.idle { background: #fafafa; }
+        .test-card .tc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .test-card .tc-title { font-weight: 700; font-size: 14px; color: #2c3e50; display: flex; align-items: center; gap: 8px; }
+        .test-card .tc-desc { font-size: 12px; color: #888; margin-bottom: 10px; }
+        .test-card .tc-result { font-size: 13px; min-height: 20px; padding: 6px 10px; border-radius: 4px; background: #f0f0f0; word-break: break-word; }
+        .test-card .tc-result.ok { background: #d4edda; color: #155724; }
+        .test-card .tc-result.err { background: #f8d7da; color: #721c24; }
+        .test-card .tc-result.loading { background: #fff3cd; color: #856404; }
+
+        .summary-bar { display: flex; gap: 20px; align-items: center; padding: 16px 20px; border-radius: 8px; margin-bottom: 20px; font-weight: 700; font-size: 15px; }
+        .summary-bar.all-ok { background: #d4edda; color: #155724; border: 2px solid #28a745; }
+        .summary-bar.has-fail { background: #f8d7da; color: #721c24; border: 2px solid #dc3545; }
+        .summary-bar.idle { background: #f0f0f0; color: #666; border: 2px solid #ddd; }
+
+        .icon { font-size: 18px; flex-shrink: 0; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>9. Herramientas y Test</h2>
+            <p class="desc" style="margin-bottom:15px;">Verifica que todos los servicios y conexiones del sistema funcionan correctamente. Puedes ejecutar los tests de forma individual o lanzar todos a la vez.</p>
+
+            <div id="summary-bar" class="summary-bar idle">
+                <span>Pulsa un boton para ejecutar los tests</span>
+            </div>
+
+            <div class="btn-group" style="margin-bottom: 20px; gap: 10px;">
+                <button class="btn btn-save" onclick="runAllTests()" id="btn-run-all">Ejecutar todos los tests</button>
+                <button class="btn btn-test" onclick="clearResults()">Limpiar resultados</button>
+            </div>
+
+            <div class="test-grid" id="test-grid">
+                <!-- Base de datos -->
+                <div class="test-card idle" id="card-database">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#128451;</span> Base de datos</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('database')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">Conexion a la DB, consulta SELECT 1, tablas de modelos</div>
+                    <div class="tc-result" id="result-database"></div>
+                </div>
+
+                <!-- Settings -->
+                <div class="test-card idle" id="card-settings_table">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#9881;</span> Tabla de configuracion</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('settings_table')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">Acceso a system_settings y SettingsResolver</div>
+                    <div class="tc-result" id="result-settings_table"></div>
+                </div>
+
+                <!-- Rutas locales -->
+                <div class="test-card idle" id="card-paths">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#128193;</span> Rutas locales</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('paths')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">Verifica que working, export, temp y logs existen y son writables</div>
+                    <div class="tc-result" id="result-paths"></div>
+                </div>
+
+                <!-- Sistema -->
+                <div class="test-card idle" id="card-system">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#128187;</span> Sistema</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('system')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">CPU, memoria, disco, version de Python</div>
+                    <div class="tc-result" id="result-system"></div>
+                </div>
+
+                <!-- SMB -->
+                <div class="test-card idle" id="card-smb">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#127968;</span> SMB / Hotfolder</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('smb')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">Conexion SMB con Synology, listado de shares y carpetas</div>
+                    <div class="tc-result" id="result-smb"></div>
+                </div>
+
+                <!-- Outfolder FTP -->
+                <div class="test-card idle" id="card-outfolder">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#128228;</span> FTP / Outfolder</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('outfolder')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">Conexion FTP de salida, escritura de test</div>
+                    <div class="tc-result" id="result-outfolder"></div>
+                </div>
+
+                <!-- Telegram -->
+                <div class="test-card idle" id="card-telegram">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#9993;</span> Telegram</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('telegram')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">Envia un mensaje de prueba al bot configurado</div>
+                    <div class="tc-result" id="result-telegram"></div>
+                </div>
+
+                <!-- LLM -->
+                <div class="test-card idle" id="card-llm">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#129302;</span> LLM activo</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('llm')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">Prueba la conexion con el proveedor LLM activo (OpenAI, Anthropic, Groq...)</div>
+                    <div class="tc-result" id="result-llm"></div>
+                </div>
+
+                <!-- WordPress -->
+                <div class="test-card idle" id="card-wordpress">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#9998;</span> WordPress API</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('wordpress')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">Conexion REST API de WordPress con auth</div>
+                    <div class="tc-result" id="result-wordpress"></div>
+                </div>
+
+                <!-- Recarga de cache -->
+                <div class="test-card idle" id="card-cache">
+                    <div class="tc-header">
+                        <span class="tc-title"><span class="icon">&#128260;</span> Recarga de cache</span>
+                        <button class="btn btn-test btn-sm" onclick="runTest('cache')">Ejecutar</button>
+                    </div>
+                    <div class="tc-desc">Fuerza la recarga de la cache de configuracion desde la DB</div>
+                    <div class="tc-result" id="result-cache"></div>
+                </div>
+            </div>
+
+            <!-- TEST DE PIPELINE (ancho completo) -->
+            <div class="test-card idle" id="card-pipeline" style="margin-top: 10px;">
+                <div class="tc-header">
+                    <span class="tc-title"><span class="icon">&#9889;</span> Test de pipeline (lote completo)</span>
+                    <button class="btn btn-teal btn-sm" onclick="runPipelineTest()" id="btn-pipeline">Ejecutar pipeline de prueba</button>
+                </div>
+                <div class="tc-desc">Crea ficheros de prueba, los pasa por todo el pipeline (ingestion, clasificacion, exportacion) y muestra los resultados. Incluye opciones de municipio y categoria.</div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; align-items:center;">
+                    <select id="pipe-municipality" style="padding:6px 10px; border:1px solid #ccc; border-radius:4px;">
+                        <option value="">Sin pista de municipio</option>
+                        <option value="BERGUEDA">Bergueda</option>
+                        <option value="CERDANYA">Cerdanya</option>
+                        <option value="MARESME">Maresme</option>
+                    </select>
+                    <select id="pipe-category" style="padding:6px 10px; border:1px solid #ccc; border-radius:4px;">
+                        <option value="">Sin pista de categoria</option>
+                        <option value="NOTICIES">Noticies</option>
+                        <option value="AGENDA">Agenda</option>
+                        <option value="ESPORTS">Esports</option>
+                        <option value="CULTURA">Cultura</option>
+                        <option value="TURISME_ACTIU">Turisme Actiu</option>
+                    </select>
+                    <label style="font-size:12px; display:flex; align-items:center; gap:4px;">
+                        <input type="checkbox" id="pipe-cleanup" checked> Limpiar lote despues del test
+                    </label>
+                </div>
+                <div class="tc-result" id="result-pipeline"></div>
+            </div>
+
+            <!-- TEST POR FLUJO (ancho completo) -->
+            <div class="test-card idle" id="card-flow-test" style="margin-top: 10px;">
+                <div class="tc-header">
+                    <span class="tc-title"><span class="icon">&#128736;</span> Test por flujo</span>
+                    <button class="btn btn-teal btn-sm" onclick="runFlowTest()" id="btn-flow-test">Ejecutar flujo</button>
+                </div>
+                <div class="tc-desc">Ejecuta un flujo existente (ingestion + clasificacion + JSON). Selecciona un flujo configurado en la seccion de Flujos.</div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; align-items:center;">
+                    <select id="flow-select" style="padding:6px 10px; border:1px solid #ccc; border-radius:4px; min-width:250px;">
+                        <option value="">Cargando flujos...</option>
+                    </select>
+                    <label style="font-size:12px; display:flex; align-items:center; gap:4px;">
+                        <input type="checkbox" id="flow-export" checked> Exportar JSON al outfolder
+                    </label>
+                </div>
+                <div class="tc-result" id="result-flow-test"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function escapeHtml(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function setCardState(id, state) {
+            const card = document.getElementById('card-' + id);
+            if (!card) return;
+            card.className = 'test-card ' + state;
+        }
+
+        function setResult(id, success, message) {
+            const el = document.getElementById('result-' + id);
+            if (!el) return;
+            el.className = 'tc-result ' + (success ? 'ok' : 'err');
+            el.innerHTML = '<span class="status-dot ' + (success ? 'green' : 'red') + '"></span>' + escapeHtml(message);
+        }
+
+        function setLoading(id) {
+            const card = document.getElementById('card-' + id);
+            const el = document.getElementById('result-' + id);
+            if (card) card.className = 'test-card running';
+            if (el) { el.className = 'tc-result loading'; el.innerHTML = '<span class="status-dot yellow"></span>Ejecutando...'; }
+        }
+
+        function updateSummary(results) {
+            const bar = document.getElementById('summary-bar');
+            const total = Object.keys(results).length;
+            if (total === 0) {
+                bar.className = 'summary-bar idle';
+                bar.innerHTML = '<span>Pulsa un boton para ejecutar los tests</span>';
+                return;
+            }
+            const passed = Object.values(results).filter(r => r.success).length;
+            const failed = total - passed;
+            if (failed === 0) {
+                bar.className = 'summary-bar all-ok';
+                bar.innerHTML = '<span class="status-dot green"></span>Todos los tests OK (' + passed + '/' + total + ')';
+            } else {
+                bar.className = 'summary-bar has-fail';
+                bar.innerHTML = '<span class="status-dot red"></span>' + passed + ' OK, ' + failed + ' con errores (' + total + ' total)';
+            }
+        }
+
+        function clearResults() {
+            document.querySelectorAll('.test-card').forEach(c => c.className = 'test-card idle');
+            document.querySelectorAll('.tc-result').forEach(el => { el.className = 'tc-result'; el.innerHTML = ''; });
+            updateSummary({});
+        }
+
+        async function runTest(name) {
+            setLoading(name);
+            try {
+                const res = await fetch('/settings/test/run-all', { method: 'POST' });
+                const data = await res.json();
+                if (data[name]) {
+                    setCardState(name, data[name].success ? 'pass' : 'fail');
+                    setResult(name, data[name].success, data[name].message);
+                }
+                const results = {};
+                Object.keys(data).forEach(k => {
+                    if (k !== '_summary' && data[k] && typeof data[k] === 'object' && 'success' in data[k]) {
+                        results[k] = data[k];
+                    }
+                });
+                updateSummary(results);
+            } catch(e) {
+                setCardState(name, 'fail');
+                setResult(name, false, 'Error de conexion con el servidor');
+            }
+        }
+
+        async function runAllTests() {
+            const btn = document.getElementById('btn-run-all');
+            btn.disabled = true;
+            btn.textContent = 'Ejecutando todos...';
+            document.querySelectorAll('.test-card').forEach(c => c.className = 'test-card running');
+            document.querySelectorAll('.tc-result').forEach(el => {
+                el.className = 'tc-result loading';
+                el.innerHTML = '<span class="status-dot yellow"></span>En cola...';
+            });
+            try {
+                const res = await fetch('/settings/test/run-all', { method: 'POST' });
+                const data = await res.json();
+                const results = {};
+                Object.keys(data).forEach(k => {
+                    if (k !== '_summary' && data[k] && typeof data[k] === 'object' && 'success' in data[k]) {
+                        results[k] = data[k];
+                        setCardState(k, data[k].success ? 'pass' : 'fail');
+                        setResult(k, data[k].success, data[k].message);
+                    }
+                });
+                updateSummary(results);
+            } catch(e) {
+                document.querySelectorAll('.test-card').forEach(c => {
+                    if (c.className === 'test-card running') {
+                        c.className = 'test-card fail';
+                    }
+                });
+                const bar = document.getElementById('summary-bar');
+                bar.className = 'summary-bar has-fail';
+                bar.innerHTML = '<span class="status-dot red"></span>Error de conexion con el servidor';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Ejecutar todos los tests';
+        }
+        async function runPipelineTest() {
+            const btn = document.getElementById('btn-pipeline');
+            const el = document.getElementById('result-pipeline');
+            const card = document.getElementById('card-pipeline');
+            const municipality = document.getElementById('pipe-municipality').value;
+            const category = document.getElementById('pipe-category').value;
+            const cleanup = document.getElementById('pipe-cleanup').checked;
+
+            btn.disabled = true;
+            btn.textContent = 'Ejecutando pipeline... (puede tardar unos segundos)';
+            card.className = 'test-card running';
+            el.className = 'tc-result loading';
+            el.innerHTML = '<span class="status-dot yellow"></span>Creando ficheros de prueba y ejecutando el pipeline...';
+
+            try {
+                const res = await fetch('/settings/test/pipeline-batch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ municipality, category, cleanup })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    card.className = 'test-card pass';
+                    el.className = 'tc-result ok';
+                    let html = '<span class="status-dot green"></span><strong>Pipeline completado</strong> (' + (data.duration || '?') + 's)';
+                    if (data.details) {
+                        html += '<div style="margin-top:8px; font-size:12px; line-height:1.6;">';
+                        html += '<strong>Lote:</strong> ' + escapeHtml(data.details.batch_status || '-') + '<br>';
+                        html += '<strong>Ficheros:</strong> ' + (data.details.files_ingested || 0) + '<br>';
+                        if (data.details.candidates && data.details.candidates.length > 0) {
+                            html += '<strong>Candidatos:</strong><br>';
+                            data.details.candidates.forEach(c => {
+                                const statusColor = c.status === 'EXPORTED' ? 'green' : (c.status === 'FAILED' ? 'red' : '#e67e22');
+                                html += '<div style="margin-left:12px; padding:4px 0;">';
+                                html += '<span class="status-dot" style="background:' + statusColor + '"></span>';
+                                html += '<strong>' + escapeHtml(c.municipality || '?') + ' / ' + escapeHtml(c.category || '?') + '</strong> ';
+                                html += '(confianza: ' + (c.confidence != null ? (c.confidence * 100).toFixed(0) + '%' : 'N/A') + ')<br>';
+                                if (c.title) html += 'Titulo: <em>' + escapeHtml(c.title) + '</em><br>';
+                                html += 'Estado: ' + escapeHtml(c.status);
+                                if (c.error) html += ' <span style="color:red;">- ' + escapeHtml(c.error) + '</span>';
+                                html += '</div>';
+                            });
+                        }
+                        if (data.details.events && data.details.events.length > 0) {
+                            html += '<strong>Eventos:</strong> ' + data.details.events.join(' &rarr; ');
+                        }
+                        html += '</div>';
+                    }
+                    el.innerHTML = html;
+                } else {
+                    card.className = 'test-card fail';
+                    el.className = 'tc-result err';
+                    el.innerHTML = '<span class="status-dot red"></span><strong>Error:</strong> ' + escapeHtml(data.message);
+                    if (data.details && data.details.error_trace) {
+                        el.innerHTML += '<pre style="margin-top:8px; font-size:11px; white-space:pre-wrap; color:#999;">' + escapeHtml(data.details.error_trace) + '</pre>';
+                    }
+                }
+            } catch(e) {
+                card.className = 'test-card fail';
+                el.className = 'tc-result err';
+                el.innerHTML = '<span class="status-dot red"></span>Error de conexion: ' + escapeHtml(e.message);
+            }
+            btn.disabled = false;
+            btn.textContent = 'Ejecutar pipeline de prueba';
+        }
+
+        async function loadFlows() {
+            const sel = document.getElementById('flow-select');
+            try {
+                const res = await fetch('/api/v1/flows');
+                const flows = await res.json();
+                sel.innerHTML = '<option value="">-- Selecciona un flujo --</option>';
+                flows.forEach(f => {
+                    const statusInfo = f.last_run_status ? ' [' + escapeHtml(f.last_run_status) + ']' : '';
+                    const opt = document.createElement('option');
+                    opt.value = f.id;
+                    opt.textContent = escapeHtml(f.name) + ' (' + escapeHtml(f.municipality) + '/' + escapeHtml(f.category) + ')' + statusInfo;
+                    sel.appendChild(opt);
+                });
+            } catch(e) {
+                sel.innerHTML = '<option value="">Error cargando flujos</option>';
+            }
+        }
+
+        async function runFlowTest() {
+            const btn = document.getElementById('btn-flow-test');
+            const el = document.getElementById('result-flow-test');
+            const card = document.getElementById('card-flow-test');
+            const flowId = document.getElementById('flow-select').value;
+            const doExport = document.getElementById('flow-export').checked;
+
+            if (!flowId) {
+                el.className = 'tc-result err';
+                el.innerHTML = '<span class="status-dot red"></span>Selecciona un flujo';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Ejecutando flujo...';
+            card.className = 'test-card running';
+            el.className = 'tc-result loading';
+            el.innerHTML = '<span class="status-dot yellow"></span>Procesando flujo...';
+
+            try {
+                const endpoint = doExport ? '/api/v1/flows/' + flowId + '/export' : '/api/v1/flows/' + flowId + '/run';
+                const res = await fetch(endpoint, { method: 'POST' });
+                const data = await res.json();
+
+                if (data.success) {
+                    card.className = 'test-card pass';
+                    el.className = 'tc-result ok';
+                    let html = '<span class="status-dot green"></span><strong>Flujo completado</strong>';
+                    if (data.message) html += '<br>' + escapeHtml(data.message);
+                    if (data.upload) html += '<br><strong>Exportacion:</strong> ' + escapeHtml(data.upload);
+                    if (data.articles_count != null) html += '<br><strong>Articulos:</strong> ' + data.articles_count;
+                    if (data.classification) {
+                        const c = data.classification;
+                        html += '<br><strong>Clasificacion:</strong> ' + escapeHtml(c.municipality || '') + ' / ' + escapeHtml(c.category || '') + ' (confianza: ' + (c.confidence != null ? (c.confidence * 100).toFixed(0) + '%' : 'N/A') + ')';
+                        if (c.review_required) html += ' <span style="color:#e67e22;">[requiere revision]</span>';
+                    }
+                    el.innerHTML = html;
+                } else {
+                    card.className = 'test-card fail';
+                    el.className = 'tc-result err';
+                    el.innerHTML = '<span class="status-dot red"></span><strong>Error:</strong> ' + escapeHtml(data.detail || data.message || 'Error desconocido');
+                }
+            } catch(e) {
+                card.className = 'test-card fail';
+                el.className = 'tc-result err';
+                el.innerHTML = '<span class="status-dot red"></span>Error de conexion: ' + escapeHtml(e.message);
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Ejecutar flujo';
+        }
+
+        loadFlows();
+    </script>
+</body>
+</html>

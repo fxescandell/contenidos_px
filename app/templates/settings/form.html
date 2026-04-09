@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuración - {{ category|title }}</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; }
+        input[type="text"], input[type="password"], input[type="number"], select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;}
+        input[type="checkbox"] { margin-right: 10px; }
+        
+        .btn { background: #0066cc; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        .btn:hover { background: #0052a3; }
+        .btn-test { background: #6c757d; margin-left: 10px; }
+        
+        .alert { padding: 15px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        
+        .help-text { font-size: 12px; color: #666; margin-top: 5px; display: block; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    
+    <div class="container">
+        <div class="sidebar">
+            <h3>Configuración</h3>
+            <ul class="menu-list">
+                <li><a href="/settings/general" class="{% if category == 'general' %}active{% endif %}">1. General</a></li>
+                <li><a href="/settings/telegram" class="{% if category == 'telegram' %}active{% endif %}">2. Telegram</a></li>
+                <li><a href="/settings/flows" class="{% if category == 'flows' %}active{% endif %}">3. Flujos</a></li>
+                <li><a href="/settings/inbox" class="{% if category == 'inbox' %}active{% endif %}">4. Hotfolder / SMB</a></li>
+                <li><a href="/settings/outfolder" class="{% if category == 'outfolder' %}active{% endif %}">5. Outfolder / FTP</a></li>
+                <li><a href="/settings/processing" class="{% if category == 'processing' %}active{% endif %}">6. Procesamiento</a></li>
+                <li><a href="/settings/publishing" class="{% if category == 'publishing' %}active{% endif %}">7. Publicacion</a></li>
+                <li><a href="/settings/ai" class="{% if category == 'ai' %}active{% endif %}">8. OCR e IA</a></li>
+                <li><a href="/settings/paths" class="{% if category == 'paths' %}active{% endif %}">9. Rutas locales</a></li>
+                <li><a href="/settings/tools" class="{% if category == 'tools' %}active{% endif %}">10. Herramientas Test</a></li>
+            </ul>
+        </div>
+        
+        <div class="content">
+            <h2>Configuración: {{ category|title }}</h2>
+            
+            {% if success %}
+            <div class="alert">✅ Configuración guardada correctamente en la base de datos.</div>
+            {% endif %}
+
+            <form action="/settings/{{ category }}" method="POST">
+                {% for item in items %}
+                <div class="form-group">
+                    <label for="{{ item.key }}">{{ item.key }}</label>
+                    
+                    {% if item.value_type.value == 'boolean' %}
+                        <input type="checkbox" id="{{ item.key }}" name="setting_{{ item.key }}" value="true" {% if item.value == True or item.value == 'true' %}checked{% endif %}>
+                        <span style="font-size: 14px;">Activar / Desactivar</span>
+                    {% elif item.is_secret %}
+                        <input type="password" id="{{ item.key }}" name="setting_{{ item.key }}" value="{{ item.value }}" placeholder="********">
+                    {% else %}
+                        <input type="text" id="{{ item.key }}" name="setting_{{ item.key }}" value="{{ item.value }}">
+                    {% endif %}
+                    
+                    <input type="hidden" name="type_{{ item.key }}" value="{{ item.value_type.value }}">
+                    {% if item.is_secret %}
+                        <input type="hidden" name="secret_{{ item.key }}" value="on">
+                    {% endif %}
+                    
+                    {% if item.description %}
+                        <span class="help-text">{{ item.description }}</span>
+                    {% endif %}
+                </div>
+                {% else %}
+                <p>No hay configuraciones base para esta categoría todavía. Debes inicializar los defaults.</p>
+                {% endfor %}
+
+                <hr style="border:0; border-top:1px solid #eee; margin: 30px 0;">
+                
+                <button type="submit" class="btn">Guardar Cambios</button>
+                
+                {% if category == 'telegram' %}
+                    <button type="button" class="btn btn-test" onclick="testConnection('telegram')">Probar Telegram</button>
+                {% elif category == 'inbox' %}
+                    <button type="button" class="btn btn-test" onclick="testConnection('ftp')">Probar FTP</button>
+                    <button type="button" class="btn btn-test" onclick="testConnection('sftp')">Probar SFTP</button>
+                    <button type="button" class="btn btn-test" onclick="testConnection('local')">Probar Ruta Local</button>
+                    
+                    <hr style="border:0; border-top:1px solid #eee; margin: 30px 0;">
+                    <h3>Herramientas de Inbox</h3>
+                    <button type="button" class="btn btn-test" onclick="testInboxActive()">Probar Conexión Activa</button>
+                    <button type="button" class="btn btn-test" onclick="discoverBatches()">Descubrir Lotes</button>
+                    <button type="button" class="btn btn-test" onclick="listInbox()">Listar Contenido</button>
+                    <div id="inbox-list-result" style="margin-top: 15px; font-size: 13px; background: #f8f9fa; padding: 10px; border-radius: 4px; display: none;"></div>
+                {% endif %}
+                
+                <div id="test-result" style="margin-top: 15px; font-weight: bold;"></div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        async function testConnection(type) {
+            document.getElementById('test-result').innerText = "Probando conexión...";
+            document.getElementById('test-result').style.color = "#666";
+            
+            try {
+                const res = await fetch(`/settings/test/${type}`, {method: 'POST'});
+                const data = await res.json();
+                document.getElementById('test-result').innerText = data.message;
+                document.getElementById('test-result').style.color = data.success ? 'green' : 'red';
+            } catch(e) {
+                document.getElementById('test-result').innerText = "Error ejecutando la prueba de conexión.";
+                document.getElementById('test-result').style.color = "red";
+            }
+        }
+
+        async function testInboxActive() {
+            document.getElementById('test-result').innerText = "Probando Inbox activo...";
+            const res = await fetch(`/api/v1/inbox/test-active`, {method: 'POST'});
+            const data = await res.json();
+            document.getElementById('test-result').innerText = data.message + (data.details ? ` (${data.details})` : '');
+            document.getElementById('test-result').style.color = data.success ? 'green' : 'red';
+        }
+
+        async function discoverBatches() {
+            const div = document.getElementById('inbox-list-result');
+            div.style.display = 'block';
+            div.innerHTML = "Descubriendo lotes...";
+            
+            const res = await fetch(`/api/v1/inbox/discover`);
+            const data = await res.json();
+            
+            if(data.success && data.batches) {
+                let html = `<strong>${data.batches.length} Lotes descubiertos:</strong><ul>`;
+                data.batches.forEach(b => {
+                    html += `<li>${b.batch_name} (${b.entry_count} archivos)</li>`;
+                });
+                html += "</ul>";
+                div.innerHTML = html;
+            } else {
+                div.innerHTML = "Error o ningún lote encontrado.";
+            }
+        }
+
+        async function listInbox() {
+            const div = document.getElementById('inbox-list-result');
+            div.style.display = 'block';
+            div.innerHTML = "Listando contenido...";
+            
+            const res = await fetch(`/api/v1/inbox/list`);
+            const data = await res.json();
+            
+            if(data.success && data.entries) {
+                let html = `<strong>Contenido raíz:</strong><ul>`;
+                data.entries.forEach(e => {
+                    html += `<li>${e.is_dir ? '📁' : '📄'} ${e.name}</li>`;
+                });
+                html += "</ul>";
+                div.innerHTML = html;
+            } else {
+                div.innerHTML = "Error o carpeta vacía.";
+            }
+        }
+    </script>
+</body>
+</html>

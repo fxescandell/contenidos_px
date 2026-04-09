@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuracion - Outfolder (Salida)</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; font-size: 14px; }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;
+        }
+        input[type="checkbox"] { margin-right: 8px; }
+        .btn { background: #0066cc; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; } .btn-save:hover { background: #218838; font-size: 15px; padding: 10px 20px; }
+        .btn-test { background: #6c757d; } .btn-test:hover { background: #5a6268; }
+        .btn-teal { background: #17a2b8; } .btn-teal:hover { background: #138496; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-danger { background: #dc3545; } .btn-danger:hover { background: #c82333; }
+        .btn-warning { background: #ffc107; color: #333; } .btn-warning:hover { background: #e0a800; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .help-text { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .section-box.disabled { opacity: 0.5; pointer-events: none; }
+        .input-row { display: flex; gap: 15px; }
+        .input-row .form-group { flex: 1; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .test-output { margin-top: 12px; font-weight: bold; font-size: 13px; min-height: 18px; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+        .folder-card { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; overflow: hidden; }
+        .folder-card.disabled-folder { opacity: 0.5; }
+        .folder-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #f8f9fa; border-bottom: 1px solid #ddd; }
+        .folder-header input[type="text"] { width: 250px; font-size: 15px; font-weight: 600; }
+        .folder-body { padding: 16px; }
+        .folder-test-result { margin-top: 10px; padding: 8px 12px; border-radius: 4px; font-size: 12px; display: none; }
+        .folder-test-result.ok { background: #d4edda; color: #155724; display: block; }
+        .folder-test-result.fail { background: #f8d7da; color: #721c24; display: block; }
+        .folder-test-result.loading { background: #fff3cd; color: #856404; display: block; }
+        .folder-test-result.warn { background: #fff3cd; color: #856404; display: block; }
+        .browse-panel { margin-top: 10px; max-height: 180px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; display: none; }
+        .browse-panel .browse-item { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #eee; font-size: 13px; }
+        .browse-panel .browse-item:hover { background: #e8f4fd; }
+        .browse-panel .browse-item.dir { color: #0066cc; }
+        .browse-panel .browse-item.file { color: #666; }
+        .color-badge { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 6px; }
+        .mode-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-left: 10px; vertical-align: middle; }
+        .mode-badge.smb { background: #dbeafe; color: #1e40af; }
+        .mode-badge.local { background: #dcfce7; color: #166534; }
+        .path-preview { font-size: 11px; color: #888; font-family: monospace; margin-top: 2px; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>
+                8. Salida
+                {% if active_mode == 'smb' %}(FTP)<span class="mode-badge smb">SMB activo</span>
+                {% else %}(Local)<span class="mode-badge local">Local activo</span>
+                {% endif %}
+            </h2>
+            <p class="help-text">El modo activo se configura en <strong>General</strong> (active_source_mode). Aqui se configuran los parametros de salida para ambos modos.</p>
+            {% if success %}
+            <div class="alert">Configuracion guardada correctamente.</div>
+            {% endif %}
+            <form id="outfolder-form" action="/settings/outfolder" method="POST">
+
+                <!-- ======================== CONEXION FTP ======================== -->
+                <div class="section-box" id="section-ftp" {% if active_mode != 'smb' %}style="display:none;"{% endif %}>
+                    <h3>Conexion FTP de salida</h3>
+                    <div class="input-row">
+                        <div class="form-group">
+                            <label>Host / IP</label>
+                            <input type="text" name="setting_outfolder_host" value="{{ values.outfolder_host or '' }}" placeholder="ftp.ejemplo.com">
+                        </div>
+                        <div class="form-group" style="max-width: 120px;">
+                            <label>Puerto</label>
+                            <input type="number" name="setting_outfolder_port" value="{{ values.outfolder_port or 21 }}">
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <div class="form-group">
+                            <label>Usuario</label>
+                            <input type="text" name="setting_outfolder_username" value="{{ values.outfolder_username or '' }}" autocomplete="username">
+                        </div>
+                        <div class="form-group">
+                            <label>Contrasena</label>
+                            <input type="password" name="setting_outfolder_password" value="{{ values.outfolder_password or '' }}" autocomplete="current-password">
+                            <input type="hidden" name="secret_outfolder_password" value="on">
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <div class="form-group" style="max-width: 200px;">
+                            <label>Timeout (seg)</label>
+                            <input type="number" name="setting_outfolder_timeout" value="{{ values.outfolder_timeout or 30 }}" min="5" max="120">
+                        </div>
+                        <div class="form-group" style="max-width: 250px;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                <input type="checkbox" id="outfolder_passive" name="setting_outfolder_passive_mode" value="true" {% if values.outfolder_passive_mode != False %}checked{% endif %}>
+                                Modo pasivo
+                            </label>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-teal" onclick="testOutfolderFtp()">Probar Conexion FTP</button>
+                    </div>
+                    <div id="ftp-test-result" class="test-output"></div>
+                </div>
+
+                <!-- ======================== CARPETAS FTP ======================== -->
+                <div class="section-box" id="section-ftp-folders" {% if active_mode != 'smb' %}style="display:none;"{% endif %}>
+                    <h3>Carpetas de Salida FTP</h3>
+                    <p class="help-text" style="margin-bottom: 15px;">Cada zona publica en su propia carpeta dentro del servidor FTP. "Test" escribe y borra. "Test con archivo" escribe sin borrar.</p>
+                    <div id="ftp-folders-container"></div>
+                    <button type="button" class="btn btn-test" onclick="addFtpFolder()">+ Anadir carpeta FTP</button>
+                </div>
+
+                <!-- ======================== SALIDA LOCAL ======================== -->
+                <div class="section-box" id="section-local" {% if active_mode != 'local' %}style="display:none;"{% endif %}>
+                    <h3>Carpeta Base Local de Salida</h3>
+                    <p class="help-text">Ruta del directorio local donde se publicaran los archivos procesados. Cada zona tendra su subcarpeta dentro de esta ruta base.</p>
+                    <div class="input-row">
+                        <div class="form-group" style="flex:2;">
+                            <label>Carpeta base local del outfolder</label>
+                            <input type="text" name="setting_outfolder_local_path" id="outfolder-local-path" value="{{ values.outfolder_local_path or '/tmp/out_folder' }}" placeholder="/datos/out_folder">
+                        </div>
+                        <div class="form-group" style="flex:0; display:flex; align-items:flex-end; padding-bottom:2px;">
+                            <button type="button" class="btn btn-teal btn-sm" onclick="testOutfolderLocal()">Probar ruta</button>
+                        </div>
+                    </div>
+                    <div id="local-test-result" class="test-output"></div>
+                </div>
+
+                <!-- ======================== CARPETAS LOCALES ======================== -->
+                <div class="section-box" id="section-local-folders" {% if active_mode != 'local' %}style="display:none;"{% endif %}>
+                    <h3>Carpetas de Salida Local</h3>
+                    <p class="help-text" style="margin-bottom: 15px;">Define las subcarpetas dentro de la ruta base local para cada zona. El sistema creara automaticamente las carpetas al publicar.</p>
+                    <div id="local-folders-container"></div>
+                    <button type="button" class="btn btn-test" onclick="addLocalFolder()">+ Anadir carpeta Local</button>
+                </div>
+
+                <hr style="border:0; border-top:1px solid #eee; margin: 25px 0;">
+                <input type="hidden" name="outfolder_folders_json" id="ftp-folders-json-input">
+                <input type="hidden" name="outfolder_local_folders_json" id="local-folders-json-input">
+                <button type="submit" class="btn btn-save">Guardar Configuracion</button>
+                <div id="global-test-result" class="test-output" style="margin-top:12px;"></div>
+            </form>
+        </div>
+    </div>
+    <script>
+        const ACTIVE_MODE = '{{ active_mode or "smb" }}';
+        let ftpFolders = {{ folders_json | safe }};
+        let localFolders = {{ local_folders_json | safe }};
+        const folderColors = ['#0066cc', '#e67e22', '#27ae60', '#8e44ad', '#c0392b', '#16a085'];
+
+        function escapeHtml(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
+
+        function getLocalBasePath() {
+            const el = document.getElementById('outfolder-local-path');
+            return el ? el.value || '/tmp/out_folder' : '/tmp/out_folder';
+        }
+
+        function buildLocalPreview(relativePath) {
+            const base = getLocalBasePath().replace(/\/$/, '');
+            const cleanRel = (relativePath || '').replace(/^\//, '');
+            return cleanRel ? `${base}/${cleanRel}` : base;
+        }
+
+        // ---- FTP Folders ----
+        function renderFtpFolders() {
+            const container = document.getElementById('ftp-folders-container');
+            container.innerHTML = '';
+            if (ftpFolders.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px; color:#aaa; font-size:14px;">No hay carpetas FTP configuradas.</div>';
+                syncJsonInputs();
+                return;
+            }
+            ftpFolders.forEach((f, i) => {
+                const color = folderColors[i % folderColors.length];
+                const disabled = !f.enabled;
+                container.innerHTML += `
+                <div class="folder-card ${disabled ? 'disabled-folder' : ''}" id="ftp-folder-${i}">
+                    <div class="folder-header">
+                        <label style="display:flex;align-items:center;cursor:pointer;margin:0;">
+                            <input type="checkbox" ${f.enabled ? 'checked' : ''} onchange="toggleFtpFolder(${i})" style="width:18px;height:18px;">
+                        </label>
+                        <span class="color-badge" style="background:${color};"></span>
+                        <input type="text" value="${escapeHtml(f.name)}" onchange="updateFtpFolderField(${i},'name',this.value)" placeholder="Nombre" style="flex:1;max-width:250px;">
+                        <button type="button" class="btn btn-danger btn-sm" onclick="removeFtpFolder(${i})">X</button>
+                    </div>
+                    <div class="folder-body">
+                        <div class="form-group">
+                            <label>Ruta en el servidor FTP</label>
+                            <div style="display:flex;gap:6px;">
+                                <input type="text" value="${escapeHtml(f.base_path)}" onchange="updateFtpFolderField(${i},'base_path',this.value)" placeholder="/Bergueda" id="ftp-base-path-${i}">
+                                <button type="button" class="btn btn-test btn-sm" onclick="browseFtpSubfolders(${i},'ftp-base-path-${i}')">Examinar</button>
+                            </div>
+                            <div class="browse-panel" id="ftp-browse-panel-${i}"></div>
+                        </div>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-teal btn-sm" onclick="testFtpFolderWrite(${i},true)">Test (escribir y borrar)</button>
+                            <button type="button" class="btn btn-warning btn-sm" onclick="testFtpFolderWrite(${i},false)">Test con archivo (sin borrar)</button>
+                        </div>
+                        <div id="ftp-folder-result-${i}" class="folder-test-result"></div>
+                    </div>
+                </div>`;
+            });
+            syncJsonInputs();
+        }
+
+        function addFtpFolder() { ftpFolders.push({name:"Nueva carpeta",base_path:"/",enabled:true}); renderFtpFolders(); }
+        function removeFtpFolder(i) { ftpFolders.splice(i,1); renderFtpFolders(); }
+        function toggleFtpFolder(i) {
+            ftpFolders[i].enabled = !ftpFolders[i].enabled;
+            document.getElementById(`ftp-folder-${i}`).classList.toggle('disabled-folder',!ftpFolders[i].enabled);
+            syncJsonInputs();
+        }
+        function updateFtpFolderField(i,field,value) { ftpFolders[i][field]=value; syncJsonInputs(); }
+
+        async function testFtpFolderWrite(i, deleteAfter) {
+            const f = ftpFolders[i];
+            const el = document.getElementById(`ftp-folder-result-${i}`);
+            el.className = 'folder-test-result loading';
+            el.textContent = deleteAfter ? `Probando "${f.name}"...` : `Probando "${f.name}" (sin borrar)...`;
+            try {
+                const res = await fetch('/settings/test/outfolder/write-folder', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({base_path:f.base_path, delete_after:deleteAfter, mode:'ftp'})
+                });
+                const data = await res.json();
+                el.className = 'folder-test-result ' + (data.success ? (deleteAfter ? 'ok' : 'warn') : 'fail');
+                el.innerHTML = `<span class="status-dot ${data.success?'green':'red'}"></span>${escapeHtml(data.message)}`;
+            } catch(e) { el.className='folder-test-result fail'; el.textContent='Error de conexion.'; }
+        }
+
+        async function browseFtpSubfolders(i, inputId) {
+            const panel = document.getElementById(`ftp-browse-panel-${i}`);
+            const currentPath = document.getElementById(inputId).value || '';
+            panel.style.display = 'block';
+            panel.innerHTML = '<div style="padding:8px;color:#888;">Cargando...</div>';
+            try {
+                const res = await fetch('/settings/test/outfolder/subfolders', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({base_path:currentPath, mode:'ftp'})
+                });
+                const data = await res.json();
+                if (data.success && data.folders && data.folders.length > 0) {
+                    let html = '';
+                    if (currentPath && currentPath !== '/') {
+                        html += `<div class="browse-item dir" onclick="navigateFtpBrowse(${i},'${inputId}','')">.. (raiz)</div>`;
+                    }
+                    data.folders.forEach(f => {
+                        const newPath = currentPath === '/' ? `/${f.name}` : `${currentPath}/${f.name}`;
+                        if (f.is_dir) {
+                            html += `<div class="browse-item dir" onclick="navigateFtpBrowse(${i},'${inputId}','${escapeHtml(newPath)}')">[DIR] ${escapeHtml(f.name)}</div>`;
+                        } else {
+                            html += `<div class="browse-item file">[FILE] ${escapeHtml(f.name)}</div>`;
+                        }
+                    });
+                    panel.innerHTML = html;
+                } else {
+                    panel.innerHTML = '<div style="padding:8px;color:#888;">Carpeta vacia o sin acceso.</div>';
+                }
+            } catch(e) { panel.innerHTML = '<div style="padding:8px;color:red;">Error.</div>'; }
+        }
+
+        function navigateFtpBrowse(i, inputId, path) {
+            document.getElementById(inputId).value = path;
+            updateFtpFolderField(i, 'base_path', path);
+            browseFtpSubfolders(i, inputId);
+        }
+
+        // ---- Local Folders ----
+        function renderLocalFolders() {
+            const container = document.getElementById('local-folders-container');
+            container.innerHTML = '';
+            if (localFolders.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px; color:#aaa; font-size:14px;">No hay carpetas locales configuradas.</div>';
+                syncJsonInputs();
+                return;
+            }
+            localFolders.forEach((f, i) => {
+                const color = folderColors[i % folderColors.length];
+                const disabled = !f.enabled;
+                const pathPreview = buildLocalPreview(f.base_path);
+                container.innerHTML += `
+                <div class="folder-card ${disabled ? 'disabled-folder' : ''}" id="local-folder-${i}">
+                    <div class="folder-header">
+                        <label style="display:flex;align-items:center;cursor:pointer;margin:0;">
+                            <input type="checkbox" ${f.enabled ? 'checked' : ''} onchange="toggleLocalFolder(${i})" style="width:18px;height:18px;">
+                        </label>
+                        <span class="color-badge" style="background:${color};"></span>
+                        <input type="text" value="${escapeHtml(f.name)}" onchange="updateLocalFolderField(${i},'name',this.value)" placeholder="Nombre" style="flex:1;max-width:250px;">
+                        <span style="flex:1; font-size:12px; color:#888;" id="local-path-preview-${i}">${escapeHtml(pathPreview)}</span>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="removeLocalFolder(${i})">X</button>
+                    </div>
+                    <div class="folder-body">
+                        <div class="form-group">
+                            <label>Subcarpeta (relativa a la base local)</label>
+                            <input type="text" value="${escapeHtml(f.base_path)}" onchange="updateLocalFolderField(${i},'base_path',this.value); updateLocalFolderPathPreview(${i})" placeholder="/Bergueda" id="local-base-path-${i}">
+                        </div>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-teal btn-sm" onclick="testLocalFolderWrite(${i},true)">Test (escribir y borrar)</button>
+                            <button type="button" class="btn btn-warning btn-sm" onclick="testLocalFolderWrite(${i},false)">Test con archivo (sin borrar)</button>
+                        </div>
+                        <div id="local-folder-result-${i}" class="folder-test-result"></div>
+                    </div>
+                </div>`;
+            });
+            syncJsonInputs();
+        }
+
+        function addLocalFolder() { localFolders.push({name:"Nueva carpeta",base_path:"/",enabled:true}); renderLocalFolders(); }
+        function removeLocalFolder(i) { localFolders.splice(i,1); renderLocalFolders(); }
+        function toggleLocalFolder(i) {
+            localFolders[i].enabled = !localFolders[i].enabled;
+            document.getElementById(`local-folder-${i}`).classList.toggle('disabled-folder',!localFolders[i].enabled);
+            syncJsonInputs();
+        }
+        function updateLocalFolderField(i,field,value) { localFolders[i][field]=value; syncJsonInputs(); }
+
+        function updateLocalFolderPathPreview(i) {
+            const preview = document.getElementById(`local-path-preview-${i}`);
+            if (!preview) return;
+            preview.textContent = buildLocalPreview(localFolders[i].base_path);
+        }
+
+        async function testLocalFolderWrite(i, deleteAfter) {
+            const f = localFolders[i];
+            const el = document.getElementById(`local-folder-result-${i}`);
+            el.className = 'folder-test-result loading';
+            el.textContent = deleteAfter ? `Probando "${f.name}"...` : `Probando "${f.name}" (sin borrar)...`;
+            try {
+                const res = await fetch('/settings/test/outfolder/write-folder', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({base_path:f.base_path, delete_after:deleteAfter, mode:'local'})
+                });
+                const data = await res.json();
+                el.className = 'folder-test-result ' + (data.success ? (deleteAfter ? 'ok' : 'warn') : 'fail');
+                el.innerHTML = `<span class="status-dot ${data.success?'green':'red'}"></span>${escapeHtml(data.message)}`;
+            } catch(e) { el.className='folder-test-result fail'; el.textContent='Error de conexion.'; }
+        }
+
+        // ---- Common ----
+        function syncJsonInputs() {
+            document.getElementById('ftp-folders-json-input').value = JSON.stringify(ftpFolders);
+            document.getElementById('local-folders-json-input').value = JSON.stringify(localFolders);
+        }
+
+        async function testOutfolderFtp() {
+            const el = document.getElementById('ftp-test-result');
+            el.textContent='Probando...'; el.style.color='#666';
+            try {
+                const res = await fetch('/settings/test/outfolder/ftp',{method:'POST'});
+                const data = await res.json();
+                el.innerHTML=`<span class="status-dot ${data.success?'green':'red'}"></span>${data.message}`;
+                el.style.color=data.success?'green':'red';
+            } catch(e) { el.textContent='Error.'; el.style.color='red'; }
+        }
+
+        async function testOutfolderLocal() {
+            const el = document.getElementById('local-test-result');
+            el.textContent='Probando...'; el.style.color='#666';
+            try {
+                const res = await fetch('/settings/test/outfolder/local',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:''})});
+                const data = await res.json();
+                el.innerHTML=`<span class="status-dot ${data.success?'green':'red'}"></span>${data.message}`;
+                el.style.color=data.success?'green':'red';
+            } catch(e) { el.textContent='Error.'; el.style.color='red'; }
+        }
+
+        document.getElementById('outfolder-form').addEventListener('submit', function() { syncJsonInputs(); });
+        renderFtpFolders();
+        renderLocalFolders();
+    </script>
+</body>
+</html>

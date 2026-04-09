@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuración - General</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .form-group { margin-bottom: 18px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; font-size: 14px; }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;
+        }
+        input[type="checkbox"] { margin-right: 8px; width: 18px; height: 18px; vertical-align: middle; }
+        .btn { background: #0066cc; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 14px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; font-size: 15px; padding: 10px 20px; }
+        .btn-save:hover { background: #218838; }
+        .btn-test { background: #6c757d; }
+        .btn-test:hover { background: #5a6268; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .help-text { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .section-box p.desc { font-size: 13px; color: #666; margin: 0 0 15px 0; line-height: 1.5; }
+        .input-row { display: flex; gap: 15px; }
+        .input-row .form-group { flex: 1; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .info-card { background: #f8f9fa; border-radius: 6px; padding: 12px; margin-bottom: 8px; border: 1px solid #eee; }
+        .info-card label { font-size: 12px; color: #888; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .info-card .value { font-size: 14px; font-weight: 600; color: #333; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+        .status-dot.gray { background: #aaa; }
+        .health-results { margin-top: 12px; padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #eee; display: none; font-size: 13px; line-height: 1.8; }
+        .health-results div { padding: 2px 0; }
+        .health-results .ok { color: #155724; }
+        .health-results .err { color: #721c24; }
+        .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-row .desc { flex: 1; }
+        .toggle-row .desc .label { display: block; font-weight: 600; font-size: 14px; color: #333; }
+        .toggle-row .desc .hint { display: block; font-size: 12px; color: #888; margin-top: 2px; }
+        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 24px; transition: .3s; }
+        .toggle-switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; }
+        .toggle-switch input:checked + .slider { background-color: #28a745; }
+        .toggle-switch input:checked + .slider:before { transform: translateX(20px); }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>1. General</h2>
+            {% if success %}
+            <div class="alert">Configuración guardada correctamente.</div>
+            {% endif %}
+            <form id="general-form" action="/settings/general" method="POST">
+
+                <!-- PROCESAMIENTO AUTOMATICO -->
+                <div class="section-box">
+                    <h3>Procesamiento automático</h3>
+                    <p class="desc">Controla cómo el sistema reacciona cuando llegan archivos nuevos al hotfolder. Desactiva el watcher para procesar solo de forma manual o por API.</p>
+
+                    <div class="toggle-row">
+                        <div class="desc">
+                            <span class="label"><input type="hidden" name="setting_enable_auto_processing" id="val_auto_processing" value="{{ values.enable_auto_processing }}"><label for="toggle-auto" style="cursor:pointer">Procesar automáticamente al detectar archivos</label></span>
+                            <span class="hint">Cuando llega un archivo al hotfolder, el pipeline se ejecuta de forma automática sin intervención manual.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-auto" onchange="document.getElementById('val_auto_processing').value=this.checked" {% if values.enable_auto_processing == True or values.enable_auto_processing == 'true' %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="toggle-row">
+                        <div class="desc">
+                            <span class="label"><input type="hidden" name="setting_enable_watcher" id="val_watcher" value="{{ values.enable_watcher }}"><label for="toggle-watcher" style="cursor:pointer">Vigilar hotfolder en segundo plano</label></span>
+                            <span class="hint">Revisa continuamente el hotfolder buscando archivos nuevos. Desactiva si solo quieres procesar a demanda.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-watcher" onchange="document.getElementById('val_watcher').value=this.checked" {% if values.enable_watcher == True or values.enable_watcher == 'true' %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="form-group" style="max-width: 200px;">
+                        <label for="watcher_interval">Intervalo de revisión (seg)</label>
+                        <input type="number" id="watcher_interval" name="setting_watcher_interval_seconds" value="{{ values.watcher_interval_seconds or 10 }}" min="5" max="120">
+                        <span class="help-text">Cada cuántos segundos revisa el hotfolder (requiere reiniciar la app).</span>
+                    </div>
+                </div>
+
+                <!-- RENDIMIENTO -->
+                <div class="section-box">
+                    <h3>Rendimiento y filtros</h3>
+                    <p class="desc">Ajusta el comportamiento del pipeline para evitar procesar archivos basura o sobrecargar el sistema.</p>
+
+                    <div class="input-row">
+                        <div class="form-group">
+                            <label for="min_file_size">Tamaño mínimo de archivo (KB)</label>
+                            <input type="number" name="setting_min_file_size_kb" value="{{ values.min_file_size_kb or 1 }}" min="0" max="10240">
+                            <span class="help-text">Archivos más pequeños se ignoran automáticamente (.DS_Store, archivos vacíos, etc).</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="max_parallel">Procesamiento paralelo máximo</label>
+                            <input type="number" name="setting_max_parallel_batches" value="{{ values.max_parallel_batches or 3 }}" min="1" max="10">
+                            <span class="help-text">Cuántos lotes se pueden procesar al mismo tiempo. Más de 3 puede ralentizar el equipo.</span>
+                        </div>
+                    </div>
+
+                    <div class="toggle-row">
+                        <div class="desc">
+                            <span class="label"><input type="hidden" name="setting_enable_telegram_on_error" id="val_telegram_error" value="{{ values.enable_telegram_on_error }}"><label for="toggle-telegram" style="cursor:pointer">Notificar por Telegram al fallar</label></span>
+                            <span class="hint">Envía un mensaje a Telegram cuando un lote falla el procesamiento. Requiere Telegram configurado.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-telegram" onchange="document.getElementById('val_telegram_error').value=this.checked" {% if values.enable_telegram_on_error == True or values.enable_telegram_on_error == 'true' %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- IDENTIFICACION -->
+                <div class="section-box">
+                    <h3>Identificación</h3>
+                    <div class="form-group">
+                        <label for="project_name">Nombre del proyecto</label>
+                        <input type="text" id="project_name" name="setting_project_name" value="{{ values.project_name or 'Editorial WP' }}">
+                        <span class="help-text">Nombre visible en el panel y en los ficheros de exportación WordPress.</span>
+                    </div>
+                    <div class="form-group" style="max-width: 250px;">
+                        <label for="app_env">Entorno</label>
+                        <select id="app_env" name="setting_app_env">
+                            <option value="production" {% if values.app_env == 'production' %}selected{% endif %}>Producción</option>
+                            <option value="development" {% if values.app_env == 'development' %}selected{% endif %}>Desarrollo</option>
+                        </select>
+                        <span class="help-text">En desarrollo se muestran más logs detallados. En producción solo errores.</span>
+                    </div>
+                </div>
+
+                <hr style="border:0; border-top:1px solid #eee; margin: 25px 0;">
+                <button type="submit" class="btn btn-save">Guardar Configuración</button>
+            </form>
+
+            <!-- DIAGNOSTICO DEL SISTEMA -->
+            <div class="section-box">
+                <h3>Diagnóstico del sistema</h3>
+                <p class="desc">Información en tiempo real del servidor. Útil para verificar que todo funciona correctamente.</p>
+
+                <div class="btn-group">
+                    <button type="button" class="btn btn-test" onclick="loadSystemInfo()">Cargar información</button>
+                    <button type="button" class="btn btn-test" onclick="testDbHealth()">Comprobar base de datos</button>
+                    <button type="button" class="btn btn-test" onclick="reloadCache()">Recargar configuración en memoria</button>
+                </div>
+
+                <div id="system-info-panel" style="display: none; margin-top: 15px;">
+                    <div class="info-grid">
+                        <div class="info-card"><label>Servidor</label><div class="value" id="info-hostname">-</div></div>
+                        <div class="info-card"><label>Python</label><div class="value" id="info-python">-</div></div>
+                        <div class="info-card"><label>Base de datos</label><div class="value" id="info-db">-</div></div>
+                        <div class="info-card"><label>Tamaño BD</label><div class="value" id="info-db-size">-</div></div>
+                        <div class="info-card"><label>Lotes totales</label><div class="value" id="info-batches">-</div></div>
+                        <div class="info-card"><label>Configuraciones</label><div class="value" id="info-settings">-</div></div>
+                        <div class="info-card"><label>Memoria usada</label><div class="value" id="info-mem">-</div></div>
+                        <div class="info-card"><label>CPU</label><div class="value" id="info-cpu">-</div></div>
+                        <div class="info-card"><label>Auto-procesar</label><div class="value" id="info-auto">-</div></div>
+                        <div class="info-card"><label>Watcher</label><div class="value" id="info-watcher">-</div></div>
+                        <div class="info-card"><label>Entorno</label><div class="value" id="info-env">-</div></div>
+                    </div>
+                </div>
+
+                <div id="health-results" class="health-results"></div>
+                <div id="cache-result" class="test-output" style="margin-top: 8px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function loadSystemInfo() {
+            const panel = document.getElementById('system-info-panel');
+            const grid = panel.querySelector('.info-grid');
+            const cards = grid.querySelectorAll('.value');
+            cards.forEach(c => c.textContent = '...');
+            panel.style.display = 'none';
+            setTimeout(() => { panel.style.display = 'block'; }, 300);
+            fetch('/settings/system-info')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('info-hostname').textContent = data.hostname || '-';
+                    document.getElementById('info-python').textContent = data.python_version || '-';
+                    document.getElementById('info-db').textContent = data.database?.engine || '-';
+                    document.getElementById('info-db-size').textContent = data.database?.db_size || '-';
+                    document.getElementById('info-batches').textContent = data.database?.batches_total || '0';
+                    document.getElementById('info-settings').textContent = data.database?.settings_count || '-';
+                    document.getElementById('info-mem').textContent = `${data.memory_used_mb} / ${data.memory_total_mb} MB (${data.memory_percent}%)`;
+                    document.getElementById('info-cpu').textContent = `${data.cpu_percent}%`;
+                    document.getElementById('info-auto').innerHTML = data.auto_processing
+                        ? '<span class="status-dot green"></span>Activado'
+                        : '<span class="status-dot red"></span>Desactivado';
+                    document.getElementById('info-watcher').innerHTML = data.watcher_enabled
+                        ? '<span class="status-dot green"></span>Activado'
+                        : '<span class="status-dot red"></span>Desactivado';
+                    document.getElementById('info-env').textContent = data.app_env;
+                })
+                .catch(e => {
+                    cards.forEach(c => c.textContent = '-');
+                    const errDiv = document.createElement('div');
+                    errDiv.style.color = 'red';
+                    errDiv.textContent = 'Error cargando informacion: ' + e.message;
+                    grid.after(errDiv);
+                });
+        }
+
+        async function testDbHealth() {
+            const div = document.getElementById('health-results');
+            div.style.display = 'block';
+            div.innerHTML = 'Comprobando base de datos...';
+            try {
+                const res = await fetch('/settings/test/db-health');
+                const data = await res.json();
+                let html = '<div><strong>' + (data.success ? 'Estado: OK' : 'Problemas detectados') + '</strong></div>';
+                data.message.split(' | ').forEach(item => {
+                    const isErr = item.includes('ERROR');
+                    html += `<div class="${isErr ? 'err' : 'ok'}">${item}</div>`;
+                });
+                div.innerHTML = html;
+            } catch(e) {
+                div.innerHTML = '<div class="err">Error de conexión.</div>';
+            }
+        }
+
+        async function reloadCache() {
+            const el = document.getElementById('cache-result');
+            el.textContent = 'Recargando...';
+            el.style.color = '#666';
+            try {
+                const res = await fetch('/settings/reload', {method: 'POST'});
+                const data = await res.json();
+                el.innerHTML = '<span class="status-dot green"></span>' + data.message;
+                el.style.color = data.success ? 'green' : 'red';
+            } catch(e) {
+                el.textContent = 'Error.';
+                el.style.color = 'red';
+            }
+        }
+
+        document.getElementById('general-form').addEventListener('submit', function() {
+            document.getElementById('val_auto_processing').value = document.getElementById('toggle-auto').checked;
+            document.getElementById('val_watcher').value = document.getElementById('toggle-watcher').checked;
+            document.getElementById('val_telegram_error').value = document.getElementById('toggle-telegram').checked;
+        });
+    </script>
+</body>
+</html>

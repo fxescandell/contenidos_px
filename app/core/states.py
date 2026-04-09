@@ -1,0 +1,36 @@
+from enum import Enum
+
+class BatchStatus(str, Enum):
+    DETECTED = "DETECTED"
+    COPYING = "COPYING"
+    COPIED = "COPIED"
+    SCANNED = "SCANNED"
+    GROUPED = "GROUPED"
+    PROCESSING = "PROCESSING"
+    FINISHED = "FINISHED"
+    FAILED = "FAILED"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+
+class CandidateStatus(str, Enum):
+    CREATED = "CREATED"
+    GROUPED = "GROUPED"
+    EXTRACTED = "EXTRACTED"
+    CLASSIFIED = "CLASSIFIED"
+    EDITORIAL_BUILT = "EDITORIAL_BUILT"
+    VALIDATED = "VALIDATED"
+    EXPORTED = "EXPORTED"
+    READY = "READY"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    FAILED = "FAILED"
+
+class ExportStatus(str, Enum):
+    PENDING = "PENDING"
+    BUILT = "BUILT"
+    WRITTEN = "WRITTEN"
+    FAILED = "FAILED"
+
+class ReprocessingStatus(str, Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"

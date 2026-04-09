@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuración - Procesamiento</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .form-group { margin-bottom: 18px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; font-size: 14px; }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;
+        }
+        input[type="checkbox"] { margin-right: 8px; width: 18px; height: 18px; vertical-align: middle; }
+        .btn { background: #0066cc; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 14px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; font-size: 15px; padding: 10px 20px; }
+        .btn-save:hover { background: #218838; }
+        .btn-test { background: #6c757d; }
+        .btn-test:hover { background: #5a6268; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .help-text { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .section-box p.desc { font-size: 13px; color: #666; margin: 0 0 15px 0; line-height: 1.5; }
+        .input-row { display: flex; gap: 15px; }
+        .input-row .form-group { flex: 1; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+        .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-row .desc { flex: 1; }
+        .toggle-row .desc .label { display: block; font-weight: 600; font-size: 14px; color: #333; }
+        .toggle-row .desc .hint { display: block; font-size: 12px; color: #888; margin-top: 2px; }
+        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 24px; transition: .3s; }
+        .toggle-switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; }
+        .toggle-switch input:checked + .slider { background-color: #28a745; }
+        .toggle-switch input:checked + .slider:before { transform: translateX(20px); }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>5. Procesamiento</h2>
+            {% if success %}
+            <div class="alert">Configuración guardada correctamente.</div>
+            {% endif %}
+            <form id="processing-form" action="/settings/processing" method="POST">
+
+                <!-- MODO DE PIPELINE -->
+                <div class="section-box">
+                    <h3>Modo de pipeline</h3>
+                    <p class="desc">Selecciona como se enrutan los documentos hacia las categorias y municipios.</p>
+
+                    <div style="display:flex; gap:16px; margin-bottom:12px;">
+                        <label style="flex:1; display:flex; align-items:center; gap:10px; padding:14px; border:2px solid {% if values.pipeline_mode != 'automatic' %}#0066cc{% else %}#ddd{% endif %}; border-radius:8px; cursor:pointer; background:{% if values.pipeline_mode != 'automatic' %}#f0f7ff{% else %}#fafafa{% endif %};">
+                            <input type="radio" name="setting_pipeline_mode" value="folder_based" {% if values.pipeline_mode != 'automatic' %}checked{% endif %} style="width:18px; height:18px;">
+                            <div>
+                                <strong style="display:block; font-size:14px; color:#2c3e50;">Basado en carpetas (flujos)</strong>
+                                <span style="font-size:12px; color:#666;">Cada flujo tiene su carpeta de origen SMB. La categoria se asigna segun la estructura de carpetas.</span>
+                            </div>
+                        </label>
+                        <label style="flex:1; display:flex; align-items:center; gap:10px; padding:14px; border:2px solid {% if values.pipeline_mode == 'automatic' %}#0066cc{% else %}#ddd{% endif %}; border-radius:8px; cursor:pointer; background:{% if values.pipeline_mode == 'automatic' %}#f0f7ff{% else %}#fafafa{% endif %};">
+                            <input type="radio" name="setting_pipeline_mode" value="automatic" {% if values.pipeline_mode == 'automatic' %}checked{% endif %} style="width:18px; height:18px;">
+                            <div>
+                                <strong style="display:block; font-size:14px; color:#2c3e50;">Clasificacion automatica</strong>
+                                <span style="font-size:12px; color:#666;">El pipeline clasifica los documentos usando IA/keywords. Requiere LLM configurado.</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- AUTOMATIZACION -->
+                <div class="section-box">
+                    <h3>Automatización</h3>
+                    <p class="desc">Controla cómo se ejecuta el pipeline de procesamiento de forma automática.</p>
+
+                    <div class="toggle-row">
+                        <div class="desc">
+                            <span class="label"><input type="hidden" name="setting_auto_publish_enabled" id="val_auto_publish_enabled" value="{{ values.auto_publish_enabled }}"><label for="toggle-auto-publish" style="cursor:pointer">Publicar automáticamente</label></span>
+                            <span class="hint">Publica los artículos directamente después de completar el pipeline, sin revisión manual.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-auto-publish" onchange="document.getElementById('val_auto_publish_enabled').value=this.checked" {% if values.auto_publish_enabled == True or values.auto_publish_enabled == 'true' %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="toggle-row">
+                        <div class="desc">
+                            <span class="label"><input type="hidden" name="setting_enable_retry_on_failure" id="val_enable_retry_on_failure" value="{{ values.enable_retry_on_failure }}"><label for="toggle-retry" style="cursor:pointer">Reintentar automáticamente</label></span>
+                            <span class="hint">Reintenta los lotes que fallan hasta 3 veces antes de marcarlos como error.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-retry" onchange="document.getElementById('val_enable_retry_on_failure').value=this.checked" {% if values.enable_retry_on_failure == True or values.enable_retry_on_failure == 'true' %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- INTERVALOS Y LIMITES -->
+                <div class="section-box">
+                    <h3>Intervalos y límites</h3>
+                    <p class="desc">Ajusta los tiempos de escaneo y los límites del procesamiento.</p>
+
+                    <div class="input-row">
+                        <div class="form-group" style="max-width: 200px;">
+                            <label for="scan_interval">Intervalo de escaneo (seg)</label>
+                            <input type="number" id="scan_interval" name="setting_scan_interval_seconds" value="{{ values.scan_interval_seconds or 30 }}" min="10" max="300">
+                            <span class="help-text">Segundos entre escaneos del hotfolder (el watcher de General debe estar activo).</span>
+                        </div>
+                        <div class="form-group" style="max-width: 200px;">
+                            <label for="batch_size">Tamaño máximo de lote</label>
+                            <input type="number" id="batch_size" name="setting_batch_size_limit" value="{{ values.batch_size_limit or 50 }}" min="1" max="500">
+                            <span class="help-text">Máximo de archivos acumulados antes de forzar el procesamiento de un lote.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FILTROS DE ARCHIVOS -->
+                <div class="section-box">
+                    <h3>Filtros de archivos</h3>
+                    <p class="desc">Controla qué archivos se procesan y cuáles se omiten.</p>
+
+                    <div class="toggle-row">
+                        <div class="desc">
+                            <span class="label"><input type="hidden" name="setting_skip_duplicate_files" id="val_skip_duplicate_files" value="{{ values.skip_duplicate_files }}"><label for="toggle-skip-dup" style="cursor:pointer">Ignorar duplicados</label></span>
+                            <span class="hint">Compara el hash del contenido y salta archivos ya procesados anteriormente.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-skip-dup" onchange="document.getElementById('val_skip_duplicate_files').value=this.checked" {% if values.skip_duplicate_files == True or values.skip_duplicate_files == 'true' %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="toggle-row">
+                        <div class="desc">
+                            <span class="label"><input type="hidden" name="setting_enable_ocr" id="val_enable_ocr" value="{{ values.enable_ocr }}"><label for="toggle-ocr" style="cursor:pointer">Activar OCR en imágenes</label></span>
+                            <span class="hint">Extrae texto de imágenes con OCR antes de la clasificación. Requiere OCR configurado en la sección OCR e IA.</span>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-ocr" onchange="document.getElementById('val_enable_ocr').value=this.checked" {% if values.enable_ocr == True or values.enable_ocr == 'true' %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <hr style="border:0; border-top:1px solid #eee; margin: 25px 0;">
+                <button type="submit" class="btn btn-save">Guardar Configuración</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('processing-form').addEventListener('submit', function() {
+            document.getElementById('val_auto_publish_enabled').value = document.getElementById('toggle-auto-publish').checked;
+            document.getElementById('val_enable_retry_on_failure').value = document.getElementById('toggle-retry').checked;
+            document.getElementById('val_skip_duplicate_files').value = document.getElementById('toggle-skip-dup').checked;
+            document.getElementById('val_enable_ocr').value = document.getElementById('toggle-ocr').checked;
+        });
+    </script>
+</body>
+</html>

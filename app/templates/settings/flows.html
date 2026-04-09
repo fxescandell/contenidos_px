@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuracion - Flujos de procesamiento</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; font-size: 14px; }
+        input[type="text"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;
+        }
+        input[type="checkbox"] { margin-right: 8px; }
+        .btn { background: #0066cc; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; font-size: 15px; padding: 10px 20px; }
+        .btn-save:hover { background: #218838; }
+        .btn-test { background: #6c757d; }
+        .btn-test:hover { background: #5a6268; }
+        .btn-teal { background: #17a2b8; color: white; }
+        .btn-teal:hover { background: #138496; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .alert.alert-error { background-color: #f8d7da; color: #721c24; border-left-color: #dc3545; }
+        .help-text { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .section-box p.desc { font-size: 13px; color: #666; margin: 0 0 15px 0; line-height: 1.5; }
+        .input-row { display: flex; gap: 15px; }
+        .input-row .form-group { flex: 1; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+        .status-dot.gray { background: #aaa; }
+
+        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 24px; transition: .3s; }
+        .toggle-switch .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; }
+        .toggle-switch input:checked + .slider { background-color: #28a745; }
+        .toggle-switch input:checked + .slider:before { transform: translateX(20px); }
+
+        .mode-section { margin-bottom: 24px; }
+        .mode-section-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 8px 8px 0 0; margin-bottom: 0; }
+        .mode-section-header.smb-header { background: #e8f0fe; border: 1px solid #c5d9f7; color: #1a56db; }
+        .mode-section-header.local-header { background: #e6f9ed; border: 1px solid #b7e4c7; color: #16a34a; }
+        .mode-section-header .mode-title { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+        .mode-section-header .mode-count { font-size: 12px; font-weight: 600; background: rgba(255,255,255,0.7); padding: 2px 8px; border-radius: 10px; }
+        .mode-section-content { border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px; padding: 16px; }
+        .mode-section.inactive .mode-section-header { opacity: 0.5; }
+        .mode-section.inactive .mode-section-content { display: none; }
+
+        .municipality-group { margin-bottom: 20px; }
+        .municipality-header { display: flex; align-items: center; gap: 8px; padding: 6px 0; margin-bottom: 8px; border-bottom: 1px solid #e0e0e0; }
+        .municipality-header .municipality-name { font-weight: 700; font-size: 14px; color: #2c3e50; text-transform: uppercase; }
+
+        .flow-card { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 12px; overflow: hidden; transition: border-color .3s; }
+        .flow-card.disabled-flow { opacity: 0.55; }
+        .flow-card-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #f8f9fa; border-bottom: 1px solid #ddd; flex-wrap: wrap; }
+        .flow-card-body { padding: 16px; }
+        .flow-card-footer { padding: 10px 16px; background: #fafafa; border-top: 1px solid #eee; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+        .flow-result { margin-top: 8px; padding: 8px 12px; border-radius: 4px; font-size: 12px; display: none; }
+        .flow-result.ok { background: #d4edda; color: #155724; display: block; }
+        .flow-result.err { background: #f8d7da; color: #721c24; display: block; }
+        .flow-result.loading { background: #fff3cd; color: #856404; display: block; }
+
+        .status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .status-badge.ok { background: #d4edda; color: #155724; }
+        .status-badge.error { background: #f8d7da; color: #721c24; }
+        .status-badge.pending { background: #e2e3e5; color: #6c757d; }
+
+        .toggle-inline { display: flex; align-items: center; gap: 8px; }
+        .toggle-inline label { margin: 0; font-size: 13px; cursor: pointer; }
+
+        .empty-state { text-align: center; padding: 40px 20px; color: #aaa; font-size: 14px; }
+
+        .source-browse { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+        .source-browse select { flex: 1; }
+        .source-browse .btn { flex-shrink: 0; }
+        .folder-tree { margin-top: 6px; max-height: 180px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px; padding: 6px; background: #fafafa; font-size: 12px; }
+        .folder-tree .ft-municipality { font-weight: 600; color: #2c3e50; padding: 3px 0; cursor: pointer; }
+        .folder-tree .ft-municipality:hover { color: #0066cc; }
+        .folder-tree .ft-subfolder { padding: 2px 0 2px 16px; cursor: pointer; color: #555; }
+        .folder-tree .ft-subfolder:hover { color: #0066cc; }
+        .folder-tree .ft-empty { padding: 6px; color: #999; font-style: italic; }
+        .folder-tree .ft-loading { padding: 6px; color: #856404; }
+
+        .test-result { margin-top: 6px; padding: 8px 12px; border-radius: 4px; font-size: 12px; line-height: 1.6; }
+        .test-result.ok { background: #d4edda; color: #155724; }
+        .test-result.err { background: #f8d7da; color: #721c24; }
+        .test-result.loading { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>3. Flujos de procesamiento</h2>
+            {% if success %}
+            <div class="alert">{{ success }}</div>
+            {% endif %}
+
+            <div class="section-box">
+                <h3>Flujos de procesamiento</h3>
+                <p class="desc">Cada flujo define un municipio + categoria y donde buscar los ficheros. Los flujos se agrupan por modo de origen. El interruptor global determina cual grupo esta activo para ejecucion.</p>
+                <div id="hotfolder-context" style="padding:10px 14px; background:#f0f7ff; border-radius:6px; margin-bottom:12px; font-size:13px; color:#333;">
+                    <div><strong>SMB:</strong> <span id="smb-path-display">cargando...</span></div>
+                    <div><strong>Local:</strong> <span id="local-path-display">cargando...</span></div>
+                </div>
+            </div>
+
+            <div id="flows-smb" class="mode-section">
+                <div class="mode-section-header smb-header">
+                    <span class="mode-title"><span class="status-dot green"></span>Flujos SMB / FTP</span>
+                    <span class="mode-count" id="smb-count">0</span>
+                </div>
+                <div class="mode-section-content">
+                    <div id="smb-flows-container"><div class="empty-state">Cargando...</div></div>
+                    <div class="btn-group" style="margin-top: 12px;">
+                        <button class="btn btn-save btn-sm" onclick="createFlow('smb')">+ Anadir flujo SMB</button>
+                        <button class="btn btn-teal btn-sm" onclick="runAllActive('smb')">Ejecutar todos los activos (SMB)</button>
+                    </div>
+                    <div id="bulk-result-smb" class="flow-result" style="margin-top:10px;"></div>
+                </div>
+            </div>
+
+            <div id="flows-local" class="mode-section">
+                <div class="mode-section-header local-header">
+                    <span class="mode-title"><span class="status-dot green"></span>Flujos Locales</span>
+                    <span class="mode-count" id="local-count">0</span>
+                </div>
+                <div class="mode-section-content">
+                    <div id="local-flows-container"><div class="empty-state">Cargando...</div></div>
+                    <div class="btn-group" style="margin-top: 12px;">
+                        <button class="btn btn-save btn-sm" onclick="createFlow('local')">+ Anadir flujo Local</button>
+                        <button class="btn btn-teal btn-sm" onclick="runAllActive('local')">Ejecutar todos los activos (Local)</button>
+                    </div>
+                    <div id="bulk-result-local" class="flow-result" style="margin-top:10px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const MUNICIPALITIES = ['BERGUEDA', 'CERDANYA', 'MARESME'];
+        const CATEGORIES = ['AGENDA', 'NOTICIES', 'ESPORTS', 'TURISME_ACTIU', 'NENS_I_JOVES', 'CULTURA', 'GASTRONOMIA', 'CONSELLS', 'ENTREVISTES'];
+        const MUNICIPALITY_LABELS = { BERGUEDA: 'Bergueda', CERDANYA: 'Cerdanya', MARESME: 'Maresme' };
+        const CATEGORY_LABELS = { AGENDA: 'Agenda', NOTICIES: 'Noticies', ESPORTS: 'Esports', TURISME_ACTIU: 'Turisme Actiu', NENS_I_JOVES: 'Nens i Joves', CULTURA: 'Cultura', GASTRONOMIA: 'Gastronomia', CONSELLS: 'Consells', ENTREVISTES: 'Entrevistes' };
+
+        let flows = [];
+        let currentGlobalMode = 'smb';
+
+        function escapeHtml(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function autoFilename(municipality, category) {
+            if (!municipality || !category) return '';
+            return municipality.toLowerCase() + '-' + category.toLowerCase() + '.json';
+        }
+
+        function municipalityOptions(selected) {
+            return MUNICIPALITIES.map(m =>
+                `<option value="${m}" ${m === selected ? 'selected' : ''}>${MUNICIPALITY_LABELS[m] || m}</option>`
+            ).join('');
+        }
+
+        function categoryOptions(selected) {
+            return CATEGORIES.map(c =>
+                `<option value="${c}" ${c === selected ? 'selected' : ''}>${CATEGORY_LABELS[c] || c}</option>`
+            ).join('');
+        }
+
+        function statusBadge(flow) {
+            if (!flow.last_run_status) {
+                return '<span class="status-badge pending"><span class="status-dot gray"></span>Sin ejecutar</span>';
+            }
+            const status = flow.last_run_status.toUpperCase();
+            if (status === 'OK' || status === 'SUCCESS') {
+                return `<span class="status-badge ok"><span class="status-dot green"></span>OK</span>`;
+            } else if (status === 'ERROR' || status === 'FAILED') {
+                return `<span class="status-badge error"><span class="status-dot red"></span>Error</span>`;
+            }
+            return `<span class="status-badge pending"><span class="status-dot gray"></span>${escapeHtml(flow.last_run_status)}</span>`;
+        }
+
+        function lastRunInfo(flow) {
+            if (!flow.last_run_at && !flow.last_run_summary) return '';
+            let html = '<span style="margin-left:8px; font-size:12px; color:#666;">';
+            if (flow.last_run_at) html += escapeHtml(flow.last_run_at);
+            if (flow.last_run_summary) html += ' - ' + escapeHtml(flow.last_run_summary);
+            html += '</span>';
+            return html;
+        }
+
+        function renderFlowCard(flow) {
+            const disabledClass = flow.enabled === false ? 'disabled-flow' : '';
+            let html = '';
+            html += `<div class="flow-card ${disabledClass}" id="flow-${flow.id}">`;
+            html += `<div class="flow-card-header">`;
+            html += `<div class="toggle-inline"><label class="toggle-switch"><input type="checkbox" ${flow.enabled !== false ? 'checked' : ''} onchange="toggleEnabled('${flow.id}', this.checked)"><span class="slider"></span></label><span style="font-size:12px;">Activo</span></div>`;
+            html += `<input type="text" value="${escapeHtml(flow.name || '')}" onchange="updateField('${flow.id}','name',this.value)" placeholder="Nombre del flujo" style="flex:1; max-width:280px;">`;
+            html += statusBadge(flow);
+            html += lastRunInfo(flow);
+            html += `</div>`;
+            html += `<div class="flow-card-body">`;
+            html += `<div class="input-row">`;
+            html += `<div class="form-group"><label>Municipio</label><select onchange="onMunicipalityChange('${flow.id}', this.value)">${municipalityOptions(flow.municipality)}</select></div>`;
+            html += `<div class="form-group"><label>Categoria</label><select onchange="onCategoryChange('${flow.id}', this.value)">${categoryOptions(flow.category)}</select></div>`;
+            html += `</div>`;
+            html += `<div class="input-row">`;
+            html += `<div class="form-group"><label>Origen de ficheros</label><div class="source-browse"><span style="padding:8px 0; font-size:13px; color:#555;"><span class="status-dot green"></span>${flow.source_mode === 'local' ? 'Local' : 'SMB/FTP'}</span><button class="btn btn-test btn-sm" onclick="browseFolders('${flow.id}', '${flow.source_mode || 'smb'}')">Examinar</button></div><div id="folder-tree-${flow.id}" class="folder-tree" style="display:none;"></div></div>`;
+            html += `<div class="form-group"><label>Carpeta de origen (relativa)</label><input type="text" value="${escapeHtml(flow.source_folder || '')}" onchange="updateField('${flow.id}','source_folder',this.value)" placeholder="Agenda" id="folder-${flow.id}"><span class="help-text">Subcarpeta dentro de la ruta base. Usa "Examinar" para seleccionar.</span></div>`;
+            html += `<div class="form-group"><label>Fichero JSON de salida</label><input type="text" value="${escapeHtml(flow.output_filename || '')}" onchange="updateField('${flow.id}','output_filename',this.value)" placeholder="bergueda-agenda.json" id="filename-${flow.id}"></div>`;
+            html += `</div>`;
+            html += `<div class="toggle-inline" style="margin-top:4px;"><label class="toggle-switch"><input type="checkbox" ${flow.auto_process === true ? 'checked' : ''} onchange="updateField('${flow.id}','auto_process',this.checked)"><span class="slider"></span></label><span style="font-size:13px;">Auto-procesar</span><span class="help-text" style="margin:0; margin-left:4px;">Ejecuta este flujo automaticamente al detectar archivos nuevos.</span></div>`;
+            html += `<div id="test-${flow.id}" class="test-result" style="display:none;"></div>`;
+            html += `<div id="result-${flow.id}" class="flow-result"></div>`;
+            html += `</div>`;
+            html += `<div class="flow-card-footer">`;
+            html += `<button class="btn btn-save btn-sm" onclick="saveFlow('${flow.id}')">Guardar</button>`;
+            html += `<button class="btn btn-test btn-sm" onclick="testFlowPath('${flow.id}', false)">Test</button>`;
+            html += `<button class="btn btn-test btn-sm" onclick="testFlowPath('${flow.id}', true)" title="Escribe el archivo de test pero no lo borra">Test (dejar archivo)</button>`;
+            html += `<button class="btn btn-test btn-sm" onclick="runFlow('${flow.id}')">Ejecutar</button>`;
+            html += `<button class="btn btn-teal btn-sm" onclick="exportFlow('${flow.id}')">Ejecutar + Exportar</button>`;
+            html += `<button class="btn btn-danger btn-sm" onclick="clearLastBatch('${flow.id}')" title="Elimina el ultimo lote procesado para poder volver a ejecutar">Limpiar lote</button>`;
+            html += `<button class="btn btn-danger btn-sm" onclick="deleteFlow('${flow.id}')">Eliminar</button>`;
+            html += `</div>`;
+            html += `</div>`;
+            return html;
+        }
+
+        function renderFlows() {
+            const smbContainer = document.getElementById('smb-flows-container');
+            const localContainer = document.getElementById('local-flows-container');
+
+            const smbFlows = flows.filter(f => (f.source_mode || 'smb') === 'smb');
+            const localFlows = flows.filter(f => f.source_mode === 'local');
+
+            document.getElementById('smb-count').textContent = smbFlows.length;
+            document.getElementById('local-count').textContent = localFlows.length;
+
+            smbContainer.innerHTML = renderGroupedFlows(smbFlows);
+            localContainer.innerHTML = renderGroupedFlows(localFlows);
+
+            const smbSection = document.getElementById('flows-smb');
+            const localSection = document.getElementById('flows-local');
+            smbSection.classList.toggle('inactive', currentGlobalMode === 'local');
+            localSection.classList.toggle('inactive', currentGlobalMode === 'smb');
+        }
+
+        function renderGroupedFlows(flowsList) {
+            if (flowsList.length === 0) {
+                return '<div class="empty-state">No hay flujos en esta seccion.</div>';
+            }
+            const grouped = {};
+            MUNICIPALITIES.forEach(m => { grouped[m] = []; });
+            flowsList.forEach(f => {
+                const m = f.municipality || 'BERGUEDA';
+                if (!grouped[m]) grouped[m] = [];
+                grouped[m].push(f);
+            });
+            let html = '';
+            MUNICIPALITIES.forEach(m => {
+                if (grouped[m].length === 0) return;
+                html += `<div class="municipality-group">`;
+                html += `<div class="municipality-header"><span class="municipality-name">${MUNICIPALITY_LABELS[m] || m}</span></div>`;
+                grouped[m].forEach(flow => {
+                    html += renderFlowCard(flow);
+                });
+                html += `</div>`;
+            });
+            return html;
+        }
+
+        function updateField(id, field, value) {
+            const flow = flows.find(f => f.id === id);
+            if (flow) flow[field] = value;
+        }
+
+        function onMunicipalityChange(id, value) {
+            updateField(id, 'municipality', value);
+            const flow = flows.find(f => f.id === id);
+            if (flow) {
+                const newFilename = autoFilename(value, flow.category);
+                if (newFilename) {
+                    flow.output_filename = newFilename;
+                    const el = document.getElementById('filename-' + id);
+                    if (el) el.value = newFilename;
+                }
+            }
+            renderFlows();
+        }
+
+        function onCategoryChange(id, value) {
+            updateField(id, 'category', value);
+            const flow = flows.find(f => f.id === id);
+            if (flow) {
+                const newFilename = autoFilename(flow.municipality, value);
+                if (newFilename) {
+                    flow.output_filename = newFilename;
+                    const el = document.getElementById('filename-' + id);
+                    if (el) el.value = newFilename;
+                }
+            }
+            renderFlows();
+        }
+
+        async function browseFolders(id, mode) {
+            const flow = flows.find(f => f.id === id);
+            if (!flow) return;
+            const tree = document.getElementById('folder-tree-' + id);
+            if (!tree) return;
+            tree.style.display = 'block';
+            tree.innerHTML = '<div class="ft-loading">Cargando carpetas...</div>';
+            try {
+                const res = await fetch('/api/v1/flows/browse-folders?mode=' + encodeURIComponent(mode));
+                const data = await res.json();
+                if (!data.success) {
+                    tree.innerHTML = '<div class="ft-empty">' + escapeHtml(data.message || 'Error') + '</div>';
+                    return;
+                }
+                if (!data.folders || data.folders.length === 0) {
+                    tree.innerHTML = '<div class="ft-empty">No se encontraron carpetas.</div>';
+                    return;
+                }
+                let html = '';
+                data.folders.forEach(f => {
+                    if (f.type === 'municipality' && f.subfolders && f.subfolders.length > 0) {
+                        html += `<div class="ft-municipality" onclick="event.stopPropagation()">${escapeHtml(f.name)}/</div>`;
+                        f.subfolders.forEach(sub => {
+                            const path = f.name + '/' + sub;
+                            html += `<div class="ft-subfolder" onclick="selectFolder('${id}', '${escapeHtml(path)}')" style="cursor:pointer;">${escapeHtml(sub)} <span style="color:#999; font-size:11px;">[seleccionar]</span></div>`;
+                        });
+                    } else {
+                        html += `<div class="ft-subfolder" onclick="selectFolder('${id}', '${escapeHtml(f.name)}')" style="cursor:pointer; font-weight:600;">${escapeHtml(f.name)} <span style="color:#999; font-size:11px;">[seleccionar]</span></div>`;
+                    }
+                });
+                tree.innerHTML = html;
+            } catch(e) {
+                tree.innerHTML = '<div class="ft-empty">Error de conexion.</div>';
+            }
+        }
+
+        function selectFolder(id, path) {
+            updateField(id, 'source_folder', path);
+            const input = document.getElementById('folder-' + id);
+            if (input) input.value = path;
+            const tree = document.getElementById('folder-tree-' + id);
+            if (tree) tree.style.display = 'none';
+        }
+
+        async function testFlowPath(id, keep) {
+            const el = document.getElementById('test-' + id);
+            if (!el) return;
+            el.style.display = 'block';
+            el.className = 'test-result loading';
+            el.innerHTML = keep ? 'Escribiendo archivo de test (sin borrar)...' : 'Probando conexion...';
+            try {
+                const res = await fetch('/api/v1/flows/' + id + '/test-path?keep=' + (keep ? 'true' : 'false'), { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    el.className = 'test-result ok';
+                    let html = '<span class="status-dot green"></span><strong>OK</strong>';
+                    if (data.kept) html += ' <span style="font-size:11px; color:#e67e22;">(archivos dejados en el servidor)</span>';
+                    html += '<br><span style="font-size:11px; color:#666;">Ruta: ' + escapeHtml(data.unc_path || data.resolved_path || '') + '</span><br>';
+                    html += escapeHtml(data.message || '');
+                    if (data.files_found > 0) {
+                        html += '<br><strong>' + data.files_found + ' fichero(s) procesable(s):</strong> ' + escapeHtml(data.files.join(', '));
+                    } else {
+                        html += '<br><em style="color:#888;">Sin ficheros procesables en la carpeta.</em>';
+                    }
+                    el.innerHTML = html;
+                } else {
+                    el.className = 'test-result err';
+                    let html = '<span class="status-dot red"></span><strong>Error</strong><br>';
+                    html += '<span style="font-size:11px; color:#666;">Ruta: ' + escapeHtml(data.resolved_path || '') + '</span><br>';
+                    html += escapeHtml(data.message || 'Error desconocido');
+                    el.innerHTML = html;
+                }
+            } catch(e) {
+                el.className = 'test-result err';
+                el.textContent = 'Error de conexion: ' + e.message;
+            }
+        }
+
+        async function clearLastBatch(id) {
+            if (!confirm('Se eliminara el ultimo lote procesado de este flujo y todos sus datos asociados. Continuar?')) return;
+            const el = document.getElementById('result-' + id);
+            if (!el) return;
+            el.className = 'flow-result loading';
+            el.textContent = 'Eliminando lote...';
+            try {
+                const res = await fetch('/api/v1/flows/' + id + '/clear-last-batch', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    el.className = 'flow-result ok';
+                    el.innerHTML = '<span class="status-dot green"></span>' + escapeHtml(data.message);
+                    await loadFlows();
+                } else {
+                    el.className = 'flow-result err';
+                    el.innerHTML = '<span class="status-dot red"></span>' + escapeHtml(data.message || 'Error');
+                }
+            } catch(e) {
+                el.className = 'flow-result err';
+                el.textContent = 'Error de conexion: ' + e.message;
+            }
+        }
+
+        function toggleEnabled(id, checked) {
+            updateField(id, 'enabled', checked);
+            const card = document.getElementById('flow-' + id);
+            if (card) card.classList.toggle('disabled-flow', !checked);
+        }
+
+        async function loadFlows() {
+            try {
+                const res = await fetch('/api/v1/flows');
+                if (res.ok) {
+                    flows = await res.json();
+                } else {
+                    flows = [];
+                }
+            } catch (e) {
+                flows = [];
+            }
+            renderFlows();
+        }
+
+        async function saveFlow(id) {
+            const flow = flows.find(f => f.id === id);
+            if (!flow) return;
+            const el = document.getElementById('result-' + id);
+            el.className = 'flow-result loading';
+            el.textContent = 'Guardando...';
+            try {
+                const res = await fetch('/api/v1/flows/' + id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(flow)
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    el.className = 'flow-result ok';
+                    el.innerHTML = '<span class="status-dot green"></span>Flujo guardado correctamente.';
+                } else {
+                    el.className = 'flow-result err';
+                    el.innerHTML = '<span class="status-dot red"></span>' + escapeHtml(data.detail || data.message || 'Error al guardar.');
+                }
+            } catch (e) {
+                el.className = 'flow-result err';
+                el.textContent = 'Error de conexion con el servidor.';
+            }
+        }
+
+        async function runFlow(id) {
+            const el = document.getElementById('result-' + id);
+            el.className = 'flow-result loading';
+            el.textContent = 'Ejecutando flujo...';
+            try {
+                const res = await fetch('/api/v1/flows/' + id + '/run', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.success !== false) {
+                    el.className = 'flow-result ok';
+                    let html = '<span class="status-dot green"></span><strong>Ejecutado</strong>';
+                    if (data.summary) html += ' - ' + escapeHtml(data.summary);
+                    if (data.message) html += ': ' + escapeHtml(data.message);
+                    el.innerHTML = html;
+                    await loadFlows();
+                } else {
+                    el.className = 'flow-result err';
+                    el.innerHTML = '<span class="status-dot red"></span>' + escapeHtml(data.detail || data.message || data.error || 'Error al ejecutar.');
+                }
+            } catch (e) {
+                el.className = 'flow-result err';
+                el.textContent = 'Error de conexion con el servidor.';
+            }
+        }
+
+        async function exportFlow(id) {
+            const el = document.getElementById('result-' + id);
+            el.className = 'flow-result loading';
+            el.textContent = 'Ejecutando y exportando...';
+            try {
+                const res = await fetch('/api/v1/flows/' + id + '/export', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.success !== false) {
+                    el.className = 'flow-result ok';
+                    let html = '<span class="status-dot green"></span><strong>Ejecutado + Exportado</strong>';
+                    if (data.summary) html += ' - ' + escapeHtml(data.summary);
+                    if (data.message) html += ': ' + escapeHtml(data.message);
+                    if (data.export_file) html += ' <span style="font-size:11px;">(' + escapeHtml(data.export_file) + ')</span>';
+                    el.innerHTML = html;
+                    await loadFlows();
+                } else {
+                    el.className = 'flow-result err';
+                    el.innerHTML = '<span class="status-dot red"></span>' + escapeHtml(data.detail || data.message || data.error || 'Error al ejecutar/exportar.');
+                }
+            } catch (e) {
+                el.className = 'flow-result err';
+                el.textContent = 'Error de conexion con el servidor.';
+            }
+        }
+
+        async function deleteFlow(id) {
+            if (!confirm('Se eliminara este flujo. Esta accion no se puede deshacer. Continuar?')) return;
+            try {
+                const res = await fetch('/api/v1/flows/' + id, { method: 'DELETE' });
+                if (res.ok || res.status === 204) {
+                    flows = flows.filter(f => f.id !== id);
+                    renderFlows();
+                } else {
+                    const data = await res.json();
+                    alert('Error al eliminar: ' + (data.detail || data.message || 'Desconocido'));
+                }
+            } catch (e) {
+                alert('Error de conexion con el servidor.');
+            }
+        }
+
+        async function createFlow(mode) {
+            try {
+                const res = await fetch('/api/v1/flows', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: '',
+                        municipality: 'BERGUEDA',
+                        category: 'AGENDA',
+                        source_mode: mode || 'smb',
+                        source_folder: '',
+                        output_filename: 'bergueda-agenda.json',
+                        enabled: true,
+                        auto_process: false
+                    })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    await loadFlows();
+                } else {
+                    alert('Error al crear flujo: ' + (data.detail || data.message || 'Desconocido'));
+                }
+            } catch (e) {
+                alert('Error de conexion con el servidor.');
+            }
+        }
+
+        async function runAllActive(mode) {
+            const filtered = flows.filter(f => (f.source_mode || 'smb') === (mode || 'smb') && f.enabled !== false);
+            if (filtered.length === 0) {
+                alert('No hay flujos activos en esta seccion para ejecutar.');
+                return;
+            }
+            const el = document.getElementById('bulk-result-' + (mode || 'smb'));
+            el.className = 'flow-result loading';
+            el.textContent = 'Ejecutando ' + filtered.length + ' flujos activos...';
+            let okCount = 0;
+            let errCount = 0;
+            for (const flow of filtered) {
+                try {
+                    const res = await fetch('/api/v1/flows/' + flow.id + '/run', { method: 'POST' });
+                    if (res.ok) { okCount++; } else { errCount++; }
+                } catch (e) { errCount++; }
+            }
+            if (errCount === 0) {
+                el.className = 'flow-result ok';
+                el.innerHTML = '<span class="status-dot green"></span>Completado: ' + okCount + '/' + filtered.length + ' flujos ejecutados correctamente.';
+            } else {
+                el.className = 'flow-result err';
+                el.innerHTML = '<span class="status-dot red"></span>' + okCount + ' OK, ' + errCount + ' con errores (' + filtered.length + ' total).';
+            }
+            await loadFlows();
+        }
+
+        loadFlows();
+
+        async function loadGlobalMode() {
+            try {
+                const res = await fetch('/api/v1/flows/active-mode');
+                if (res.ok) {
+                    const data = await res.json();
+                    currentGlobalMode = data.mode || 'smb';
+                    renderFlows();
+                }
+            } catch(e) {}
+        }
+        loadGlobalMode();
+
+        async function loadHotfolderBase() {
+            const smbEl = document.getElementById('smb-path-display');
+            const localEl = document.getElementById('local-path-display');
+            try {
+                const res = await fetch('/api/v1/flows/hotfolder-info');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.smb_configured) {
+                        smbEl.innerHTML = '<span class="status-dot green"></span>' + escapeHtml(data.smb_path);
+                    } else {
+                        smbEl.innerHTML = '<span class="status-dot red"></span>No configurado';
+                    }
+                    localEl.textContent = data.local_path || '/tmp/hot_folder';
+                } else {
+                    smbEl.textContent = '(error)';
+                    localEl.textContent = '(error)';
+                }
+            } catch(e) {
+                smbEl.textContent = '(error)';
+                localEl.textContent = '(error)';
+            }
+        }
+
+        loadHotfolderBase();
+    </script>
+</body>
+</html>

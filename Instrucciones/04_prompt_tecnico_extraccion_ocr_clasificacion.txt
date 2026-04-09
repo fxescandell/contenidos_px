@@ -1,0 +1,538 @@
+Actúa como un arquitecto de software senior y desarrollador Python especializado en OCR, procesamiento documental, NLP aplicado a clasificación de contenidos, heurísticas editoriales y sistemas de confianza para pipelines automáticos.
+
+Quiero que implementes la capa de extracción, OCR, agrupación, clasificación híbrida y scoring de confianza para una aplicación que automatiza la creación de contenidos en WordPress a partir de carpetas, PDFs, DOCX e imágenes.
+
+No te centres todavía en UI bonita ni en WordPress final. En esta fase quiero resolver muy bien el corazón documental del sistema.
+
+========================================
+1. OBJETIVO DE ESTA FASE
+========================================
+
+Quiero un módulo robusto que haga lo siguiente:
+
+1. analizar un lote de archivos que llega desde una carpeta caliente
+2. identificar qué archivos pertenecen juntos a un mismo artículo candidato
+3. extraer texto de DOCX, PDF digital, PDF escaneado e imágenes
+4. limpiar y normalizar ese texto
+5. detectar señales útiles dentro del contenido
+6. clasificar automáticamente:
+   - municipio
+   - categoría/CPT
+   - subtipo
+7. calcular niveles de confianza por etapa
+8. explicar por qué ha clasificado así
+9. decidir si el contenido puede seguir automático o debe ir a revisión
+
+Quiero una implementación muy modular, testeable y trazable.
+
+========================================
+2. CONTEXTO DEL NEGOCIO
+========================================
+
+El contenido que llega pertenece a un único WordPress editorial.
+
+Municipios principales:
+- Cerdanya
+- Maresme
+- Berguedà
+- General
+
+Categorías/CPT:
+- agenda
+- noticies
+- esports
+- turisme actiu
+- nens i joves
+- cultura
+- gastronomia
+- consells
+- entrevistes
+
+Casos especiales:
+- cultura puede ser cultura general o libro
+- gastronomia puede ser general o receta
+- agenda puede ser agenda simple o agenda con varias actividades
+- algunos artículos llegan solo como cartel en imagen
+- algunos lotes traen un DOCX principal con imágenes
+- algunos PDFs son digitales y otros escaneados
+- a veces la carpeta ya dice claramente la categoría
+- a veces el contenido contradice la carpeta por error humano
+
+========================================
+3. ENTRADAS REALES
+========================================
+
+Los lotes pueden tener esta estructura:
+
+- carpeta raíz tipo "cerdanya 320"
+- subcarpetas tipo agenda / cultura / gastronomia
+- dentro puede haber:
+  - carpeta por artículo
+  - DOCX + imágenes
+  - PDF + imágenes
+  - solo cartel JPG o PNG
+  - imágenes mezcladas
+  - PDFs individuales
+
+Quiero que implementes lógica para agrupar por artículo candidato con distintos niveles de confianza.
+
+========================================
+4. RESULTADO ESPERADO
+========================================
+
+Cada artículo candidato debe acabar con:
+
+- lista de archivos asociados
+- texto extraído bruto
+- texto limpio
+- señales detectadas
+- clasificación de municipio
+- clasificación de categoría
+- clasificación de subtipo
+- explicación resumida
+- puntuaciones de confianza
+- motivos de revisión si procede
+
+========================================
+5. PRINCIPIOS CLAVE
+========================================
+
+- nunca inventar datos
+- no confiar solo en el nombre del archivo
+- usar el nombre de carpeta como pista, no como verdad absoluta
+- combinar reglas, heurísticas y LLM
+- el LLM nunca debe ser la única fuente de decisión
+- cada decisión debe poder auditarse
+- si la confianza es baja, marcar revisión
+
+========================================
+6. MODELO DE DECISIÓN HÍBRIDO
+========================================
+
+Quiero una clasificación por capas:
+
+Capa 1. señales estructurales
+- carpeta raíz
+- subcarpeta
+- nombre del lote
+- tipo de archivo
+- cercanía de archivos
+
+Capa 2. señales textuales deterministas
+- palabras clave
+- patrones de fecha
+- patrones de agenda
+- patrones de receta
+- patrones de libro
+- entidades conocidas
+- encabezados típicos
+
+Capa 3. heurísticas de consistencia
+- contenido contradice carpeta
+- varias señales apuntan a otra categoría
+- fecha muy clara pero tipo de texto dudoso
+
+Capa 4. LLM como respaldo
+- resolver ambigüedades
+- resumir razonamiento
+- proponer clasificación
+- nunca decidir en solitario sin combinar con señales previas
+
+========================================
+7. AGRUPACIÓN DE ARCHIVOS
+========================================
+
+Quiero una capa de grouping independiente.
+
+Implementa estrategias como:
+
+1. FolderGroupingStrategy
+- si hay carpeta propia de artículo, agrupar por carpeta
+
+2. DocumentPlusImagesGroupingStrategy
+- si hay un DOCX o PDF y varias imágenes próximas, asociarlas
+
+3. LooseFilesHeuristicGroupingStrategy
+- si hay archivos sueltos, agrupar por similitud de nombre, fecha, proximidad y señales internas
+
+4. SinglePosterGroupingStrategy
+- si solo hay una imagen tipo cartel, crear un candidato único
+
+Cada estrategia debe devolver:
+- candidate_key
+- archivos asociados
+- confidence
+- reasoning
+- strategy_name
+
+Quiero un GroupingOrchestrator que pruebe estrategias en orden y combine resultados.
+
+========================================
+8. EXTRACCIÓN DOCUMENTAL
+========================================
+
+Implementa extractores separados con una interfaz común.
+
+Quiero estas clases:
+- BaseExtractor
+- PdfTextExtractor
+- PdfOcrExtractor
+- DocxExtractor
+- ImageOcrExtractor
+
+Cada extractor debe devolver un ExtractionResult con:
+- source_file_id
+- extraction_method
+- raw_text
+- cleaned_text
+- metadata
+- confidence
+- warnings
+- errors
+
+DOCX:
+- extraer párrafos
+- conservar algo de la estructura si es posible
+- detectar títulos y subtítulos simples
+
+PDF digital:
+- usar extracción nativa
+- extraer texto por página
+- guardar metadata básica
+
+PDF escaneado:
+- detectar que la capa de texto es inexistente o inútil
+- aplicar OCR por páginas
+
+Imagen:
+- OCR
+- guardar bloques detectados si el motor lo permite
+
+========================================
+9. LIMPIEZA DE TEXTO
+========================================
+
+Implementa un TextCleaningPipeline reutilizable.
+
+Debe hacer:
+- normalización de espacios
+- colapso de saltos de línea inútiles
+- corrección simple de guiones rotos por OCR
+- limpieza de caracteres raros frecuentes
+- preservación de párrafos relevantes
+- detección de bloques de título si hay texto corto en mayúsculas
+
+Quiero que devuelva:
+- cleaned_text
+- cleaning_notes
+- cleaning_confidence_adjustment
+
+========================================
+10. SEÑALES Y FEATURES
+========================================
+
+Quiero una capa explícita de feature extraction.
+
+Implementa detectores como:
+- DatePatternDetector
+- AgendaPatternDetector
+- RecipePatternDetector
+- BookPatternDetector
+- MunicipalityKeywordDetector
+- CategoryKeywordDetector
+- InterviewPatternDetector
+- SportsPatternDetector
+- NewsPatternDetector
+- ChildrensContentPatternDetector
+- ActiveTourismPatternDetector
+- AdvicePatternDetector
+
+Cada detector debe devolver señales estructuradas, no solo texto.
+
+Ejemplo de signal:
+{
+  "signal_type": "agenda_structure_found",
+  "value": true,
+  "weight": 0.35,
+  "evidence": ["18:30 h", "Lloc", "Programa", "Activitats"],
+  "source": "cleaned_text"
+}
+
+========================================
+11. MUNICIPIO
+========================================
+
+Implementa clasificación de municipio usando:
+
+1. carpeta raíz
+2. nombre del lote
+3. palabras clave del texto
+4. entidades geográficas detectadas
+5. conflicto entre señales
+
+Quiero un MunicipalityClassifier que devuelva:
+- municipality
+- confidence
+- signals
+- reasoning_summary
+- conflict_detected
+
+Si carpeta dice Cerdanya pero el contenido parece claramente Maresme, debe marcar conflicto.
+
+========================================
+12. CATEGORÍA
+========================================
+
+Implementa un CategoryClassifier con reglas híbridas.
+
+Debe usar:
+- subcarpeta
+- señales textuales
+- patrones de estructura
+- subtipo detectado
+- contenido dominante
+
+Ejemplos:
+- si detecta fecha, lugar, hora y lista de actividades -> agenda
+- si detecta preguntas y respuestas / entrevista -> entrevistes
+- si detecta ingredientes / elaboración -> gastronomia receta
+- si detecta título de libro, autor y editorial -> cultura libro
+- si detecta tono informativo general y actualidad -> noticies
+- si detecta consejos prácticos -> consells
+
+Debe devolver:
+- category
+- confidence
+- top_alternatives
+- signals
+- reasoning_summary
+
+========================================
+13. SUBTIPO
+========================================
+
+Implementa un SubtypeClassifier.
+
+Subtipos relevantes:
+- CULTURA_GENERAL
+- CULTURA_BOOK
+- GASTRONOMIA_GENERAL
+- GASTRONOMIA_RECIPE
+- AGENDA_GENERAL
+- AGENDA_WITH_ACTIVITIES
+- UNKNOWN
+
+Reglas ejemplo:
+- cultura libro si hay título de libro + autor + editorial o estructura equivalente
+- gastronomia receta si aparecen ingredientes, elaboración, preparación o estructura culinaria clara
+- agenda with activities si hay múltiples actividades detectadas
+
+========================================
+14. CLASIFICACIÓN CON LLM
+========================================
+
+Quiero una interfaz desacoplada para apoyo con LLM.
+
+Clases:
+- BaseLlmClassifier
+- OpenAiCompatibleLlmClassifier
+- MockLlmClassifier para tests
+
+El LLM debe recibir:
+- texto limpio resumido o truncado con estrategia clara
+- hints del lote
+- señales detectadas
+- categorías posibles
+
+Debe devolver:
+- category suggestion
+- subtype suggestion
+- municipality suggestion
+- confidence suggestion
+- rationale
+
+Pero la decisión final debe hacerla un ClassificationOrchestrator que combine:
+- reglas
+- heurísticas
+- LLM
+
+No quiero que el LLM pueda imponerse si contradice señales fuertes.
+
+========================================
+15. SCORING DE CONFIANZA
+========================================
+
+Implementa un sistema serio de confianza por etapa.
+
+Quiero scores separados para:
+- grouping_confidence
+- extraction_confidence
+- municipality_confidence
+- category_confidence
+- subtype_confidence
+- overall_classification_confidence
+
+Y además bandas:
+- VERY_HIGH
+- HIGH
+- MEDIUM
+- LOW
+- VERY_LOW
+
+Debes explicar cómo se calcula.
+
+Ejemplo:
+- carpeta + contenido + patrones claros = alto
+- solo OCR ruidoso + señales débiles = bajo
+- conflicto carpeta vs texto = penalización
+- múltiples señales convergentes = bonificación
+
+========================================
+16. MOTIVOS DE REVISIÓN
+========================================
+
+Quiero ReviewReason estables para esta fase, como:
+- WEAK_GROUPING
+- LOW_OCR_QUALITY
+- LOW_EXTRACTION_CONFIDENCE
+- AMBIGUOUS_CATEGORY
+- AMBIGUOUS_SUBTYPE
+- AMBIGUOUS_MUNICIPALITY
+- CONFLICTING_SIGNALS
+- INSUFFICIENT_TEXT
+- NO_RELIABLE_DATE_FOUND
+- MULTIPLE_POSSIBLE_MATCHES
+
+Cada resultado debe poder acumular varios motivos.
+
+========================================
+17. RESULTADO DE CLASIFICACIÓN FINAL
+========================================
+
+Quiero un FinalClassificationResult con:
+- municipality
+- category
+- subtype
+- grouping_confidence
+- extraction_confidence
+- classification_confidence
+- confidence_band
+- requires_review
+- review_reasons
+- signals
+- reasoning_summary
+- llm_used
+- llm_summary nullable
+
+========================================
+18. ARQUITECTURA DE CLASES
+========================================
+
+Quiero como mínimo:
+- GroupingOrchestrator
+- ExtractionOrchestrator
+- FeatureExtractionOrchestrator
+- MunicipalityClassifier
+- CategoryClassifier
+- SubtypeClassifier
+- ClassificationOrchestrator
+- ConfidenceScorer
+- ReviewDecisionService
+
+Y abstracciones:
+- BaseGroupingStrategy
+- BaseExtractor
+- BaseSignalDetector
+- BaseClassifier
+- BaseLlmClassifier
+
+========================================
+19. TESTS
+========================================
+
+Incluye tests con pytest para:
+- grouping por carpeta
+- grouping docx + imágenes
+- extracción DOCX
+- extracción PDF digital
+- selección OCR fallback
+- detección de agenda
+- detección de receta
+- detección de libro
+- conflicto de municipio
+- categoría ambigua
+- cálculo de confianza
+- decisión de review
+
+========================================
+20. README DE ESTA FASE
+========================================
+
+Genera un README técnico explicando:
+- pipeline documental
+- grouping
+- extracción
+- OCR
+- señales
+- clasificación híbrida
+- scoring de confianza
+- cuándo entra el LLM
+- cuándo se manda a review
+- limitaciones
+- cómo ampliar detectores
+
+========================================
+21. ORDEN DE ENTREGA
+========================================
+
+Quiero que entregues en este orden:
+1. estructura de módulos
+2. enums y tipos necesarios
+3. schemas operativos
+4. estrategias de grouping
+5. extractores
+6. text cleaning pipeline
+7. signal detectors
+8. municipality classifier
+9. category classifier
+10. subtype classifier
+11. orchestrator final
+12. scoring de confianza
+13. review decision service
+14. tests
+15. README
+
+========================================
+22. ESTILO DE IMPLEMENTACIÓN
+========================================
+
+- código claro
+- typing completo
+- sin pseudocódigo si ya puedes implementar
+- funciones pequeñas
+- nombres descriptivos
+- sin if gigantes donde convenga usar reglas o detectores
+- explicaciones técnicas concretas
+
+========================================
+23. ENTREGABLE INICIAL
+========================================
+
+Empieza devolviendo código real para:
+- schemas operativos
+- estrategias de grouping
+- extractores
+- detectores de señales principales
+- clasificadores de municipio, categoría y subtipo
+- orquestador de clasificación
+- scorer de confianza
+- review decision service
+- tests mínimos
+- README técnico
+
+Recuerda:
+- no inventar datos
+- el LLM solo apoya
+- si hay conflicto serio -> review
+- si OCR es débil -> penalizar confianza
+- si carpeta y contenido convergen -> subir confianza

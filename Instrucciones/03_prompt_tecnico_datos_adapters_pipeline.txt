@@ -1,0 +1,1139 @@
+Actúa como un arquitecto de software principal y desarrollador senior especializado en Python, FastAPI, SQLAlchemy, OCR, procesamiento documental, automatización editorial y WordPress.
+
+Quiero que diseñes e implementes la base técnica completa de una aplicación editorial automatizada para un único sitio WordPress. En esta fase NO quiero que te centres en el frontend bonito, sino en el corazón estable del sistema:
+
+- modelo de datos
+- contracts internos
+- schemas
+- adapters WordPress
+- pipeline interno
+- validaciones
+- reglas
+- persistencia
+- control de estados
+- exportación JSON
+- trazabilidad
+
+Quiero una base muy sólida, extensible y fácil de mantener.
+
+========================================
+1. OBJETIVO DE ESTA FASE
+========================================
+
+Quiero que implementes la parte más estable de la aplicación:
+
+1. modelo de base de datos completo
+2. schemas Pydantic de entrada/salida
+3. entidades internas del pipeline
+4. abstracciones base
+5. adapters por CPT de WordPress
+6. validadores por categoría
+7. capa de exportación JSON
+8. repositorios
+9. servicios base del pipeline
+10. sistema de estados
+11. trazabilidad y auditoría
+12. pruebas mínimas de las piezas críticas
+
+No quiero aún priorizar:
+- UI elaborada
+- integración avanzada con WordPress
+- colas distribuidas complejas
+- modo revista completa
+- reglas editoriales finísimas
+- enriquecimiento web externo
+
+Esta fase debe servir como columna vertebral real del proyecto.
+
+========================================
+2. CONTEXTO REAL DEL PROYECTO
+========================================
+
+La app procesa contenido editorial que entra en una carpeta caliente y acaba convertido en contenido listo para WordPress.
+
+El sitio WordPress tiene varios CPT separados por categoría editorial.
+
+Categorías/CPT:
+- agenda
+- noticies
+- esports
+- turisme actiu
+- nens i joves
+- cultura
+- gastronomia
+- consells
+- entrevistes
+
+Municipios principales:
+- Cerdanya
+- Maresme
+- Berguedà
+- General
+
+Reglas conocidas:
+- normalmente cada artículo pertenece a una sola categoría/CPT
+- normalmente pertenece a un solo municipio
+- en casos ambiguos puede usarse General
+- featured_image es obligatoria
+- si faltan datos críticos, no se publica automáticamente
+- si hay dudas, debe quedar pendiente de revisión
+
+Casos especiales muy importantes:
+- cultura tiene subtipo “libro” dentro del mismo CPT
+- gastronomia tiene subtipo “recepta” dentro del mismo CPT
+- agenda tiene campos estructurados más sensibles
+- consells usa un esquema de clasificación de municipio diferente al resto
+
+========================================
+3. DATOS REALES A RESPETAR
+========================================
+
+Diseña la arquitectura teniendo en cuenta estas realidades de los exports WordPress:
+
+A. CAMPOS BASE COMUNES
+La mayoría de CPT comparten campos base como:
+- post_title
+- post_content
+- post_excerpt
+- post_date
+- post_name
+- post_author
+- post_status
+- featured_image
+- post_format
+- comment_status
+- ping_status
+- article-destacat
+- muchos campos SEO/meta vacíos o repetidos
+
+B. MUNICIPIOS EN LA MAYORÍA DE CPT
+Muchos CPT usan campos del tipo:
+- municipi-maresme
+- municipi-cerdanya
+- municipi-bergueda
+- municipi-bages
+- municipi-solsones
+- municipi-pirineus
+- disctricte-barcelona
+
+C. AGENDA
+Agenda tiene además:
+- tipus-d-article
+- categoria-d-agenda
+- data-esdeveniment
+- data-inici
+- data-final
+- dates-que-es-realitza-buscador
+- titol-activitat
+- data-i-hora-activitat
+- on-es-realitza-l-activitat
+- descripcio-activitat
+- informacio-adicional
+- imatge-activitat
+- activitats
+
+D. CULTURA
+Cultura puede usar:
+- tipus-d-article = "Llibre secció Cultura"
+- titol-del-llibre
+- autor-a-del-llibre
+- any-edicio
+- editorial
+- patrocinat-per
+- pagina-del-patrocinador
+- disposem-de-pdf-de-lectura-previa
+- pdf-llegir-un-fragment
+
+E. GASTRONOMIA
+Gastronomía usa:
+- tipus-article-gastronomia = "Recepta" o "Géneric"
+
+F. CONSELLS
+Consells usa:
+- consell
+- municipi-consells
+
+Debes construir una arquitectura que no dependa de campos hardcodeados en todas partes.
+Quiero una solución con adapters y mapeos declarativos.
+
+========================================
+4. REQUISITO PRINCIPAL DE DISEÑO
+========================================
+
+Quiero una arquitectura basada en una representación interna neutral del contenido.
+
+Eso significa:
+- el extractor NO debe hablar el lenguaje WordPress
+- el clasificador NO debe construir JSON de WordPress
+- el generador editorial NO debe conocer nombres reales de custom fields
+- los nombres exactos de los campos WordPress deben resolverse en la capa adapter
+
+Debes separar:
+
+1. Internal Canonical Model
+2. Validation Layer
+3. Adapter Layer
+4. Export Layer
+
+========================================
+5. MODELO CANÓNICO INTERNO
+========================================
+
+Diseña una representación interna única para cualquier contenido.
+
+Debe existir una entidad central tipo CanonicalContentItem con esta idea:
+
+- source_batch_id
+- source_candidate_id
+- municipality
+- category
+- subtype
+- source_title
+- detected_title
+- final_title
+- source_summary
+- final_summary
+- source_body_text
+- final_body_html
+- language
+- featured_image_candidate_id
+- image_items
+- structured_fields
+- keyword_signals
+- extraction_confidence
+- grouping_confidence
+- classification_confidence
+- editorial_confidence
+- requires_review
+- review_reasons
+- errors
+- warnings
+- metadata
+- timestamps
+
+Quiero que esta entidad exista tanto:
+- como schema Pydantic
+- como resultado estable del pipeline
+- como objeto que los adapters consumen
+
+Diseña subestructuras internas como:
+- CanonicalImageItem
+- CanonicalEventDate
+- CanonicalActivityItem
+- CanonicalBookData
+- CanonicalRecipeData
+- CanonicalMunicipalityAssignment
+- CanonicalClassificationDecision
+- CanonicalValidationResult
+
+========================================
+6. DOMINIO Y ENUMS
+========================================
+
+Define enums y tipos fuertemente tipados para evitar cadenas sueltas.
+
+Quiero enums como mínimo para:
+- Municipality
+- ContentCategory
+- ContentSubtype
+- ProcessingStatus
+- ReviewReason
+- ExtractionMethod
+- ExportFormat
+- ImageRole
+- ConfidenceBand
+- ValidationSeverity
+- SourceFileRole
+- CandidateGroupingStrategy
+
+Ejemplos:
+Municipality:
+- CERDANYA
+- MARESME
+- BERGUEDA
+- GENERAL
+- UNKNOWN
+
+ContentCategory:
+- AGENDA
+- NOTICIES
+- ESPORTS
+- TURISME_ACTIU
+- NENS_I_JOVES
+- CULTURA
+- GASTRONOMIA
+- CONSELLS
+- ENTREVISTES
+- UNKNOWN
+
+ContentSubtype:
+- NONE
+- CULTURA_GENERAL
+- CULTURA_BOOK
+- GASTRONOMIA_GENERAL
+- GASTRONOMIA_RECIPE
+- AGENDA_GENERAL
+- AGENDA_WITH_ACTIVITIES
+- UNKNOWN
+
+========================================
+7. BASE DE DATOS
+========================================
+
+Diseña e implementa modelos SQLAlchemy 2.x y migración Alembic inicial.
+
+Quiero tablas robustas y normalizadas, como mínimo:
+
+A. source_batches
+- id UUID
+- external_name
+- original_path
+- working_path
+- batch_sha256
+- municipality_hint nullable
+- category_hint nullable
+- status
+- requires_review
+- review_reason nullable
+- error_message nullable
+- detected_at
+- started_at nullable
+- finished_at nullable
+- created_at
+- updated_at
+
+B. source_files
+- id UUID
+- batch_id FK
+- original_path
+- working_path
+- relative_path
+- file_name
+- extension
+- mime_type
+- file_size_bytes
+- sha256
+- file_role
+- created_at
+
+C. content_candidates
+- id UUID
+- batch_id FK
+- candidate_key
+- grouping_strategy
+- grouping_confidence
+- municipality nullable
+- category nullable
+- subtype nullable
+- classification_confidence nullable
+- extraction_confidence nullable
+- editorial_confidence nullable
+- status
+- requires_review
+- review_reason nullable
+- title_hint nullable
+- featured_source_file_id nullable
+- created_at
+- updated_at
+
+D. candidate_source_files
+- id UUID
+- candidate_id FK
+- source_file_id FK
+- assigned_role
+- sort_order
+- confidence
+- created_at
+
+E. extracted_documents
+- id UUID
+- candidate_id FK
+- source_file_id FK
+- extraction_method
+- extraction_confidence
+- detected_language nullable
+- raw_text
+- cleaned_text
+- metadata_json
+- created_at
+
+F. candidate_images
+- id UUID
+- candidate_id FK
+- source_file_id FK
+- original_path
+- optimized_path nullable
+- width nullable
+- height nullable
+- original_format nullable
+- optimized_format nullable
+- optimized_file_size_bytes nullable
+- sha256 nullable
+- image_role
+- sort_order
+- processing_status
+- created_at
+
+G. canonical_contents
+- id UUID
+- candidate_id FK unique
+- municipality
+- category
+- subtype
+- source_title nullable
+- detected_title nullable
+- final_title nullable
+- source_summary nullable
+- final_summary nullable
+- source_body_text nullable
+- final_body_html nullable
+- structured_fields_json
+- metadata_json
+- extraction_confidence nullable
+- grouping_confidence nullable
+- classification_confidence nullable
+- editorial_confidence nullable
+- requires_review
+- review_reasons_json
+- errors_json
+- warnings_json
+- created_at
+- updated_at
+
+H. validation_reports
+- id UUID
+- candidate_id FK
+- validator_name
+- severity
+- code
+- message
+- details_json
+- created_at
+
+I. wordpress_exports
+- id UUID
+- candidate_id FK
+- export_format
+- adapter_name
+- export_status
+- export_path nullable
+- payload_json
+- checksum
+- created_at
+- exported_at nullable
+
+J. processing_events
+- id UUID
+- batch_id nullable FK
+- candidate_id nullable FK
+- level
+- event_type
+- stage
+- message
+- payload_json
+- created_at
+
+K. reprocessing_requests
+- id UUID
+- batch_id nullable FK
+- candidate_id nullable FK
+- requested_by
+- reason
+- force_full_rebuild
+- status
+- created_at
+- processed_at nullable
+
+Incluye:
+- índices
+- unique constraints
+- cascadas razonables
+- relaciones SQLAlchemy completas
+- __repr__ útiles
+- tipos modernos Mapped[] y mapped_column()
+
+========================================
+8. PERSISTENCIA Y REPOSITORIOS
+========================================
+
+Quiero una capa de repositorios limpia, no queries desperdigadas por todo el proyecto.
+
+Implementa repositorios separados como:
+- SourceBatchRepository
+- SourceFileRepository
+- ContentCandidateRepository
+- ExtractedDocumentRepository
+- CanonicalContentRepository
+- ValidationReportRepository
+- WordPressExportRepository
+- ProcessingEventRepository
+- ReprocessingRequestRepository
+
+Cada repositorio debe tener métodos claros, por ejemplo:
+- create()
+- get_by_id()
+- get_by_sha256()
+- list_by_status()
+- upsert()
+- add_event()
+- mark_finished()
+- mark_failed()
+- mark_requires_review()
+- list_pending_review()
+- find_latest_export_for_candidate()
+
+Usa Unit of Work simple si aporta claridad.
+
+========================================
+9. SCHEMAS PYDANTIC
+========================================
+
+Define schemas Pydantic v2 muy claros para:
+
+A. INPUT / INTERNAL
+- SourceBatchCreate
+- SourceFileCreate
+- ContentCandidateCreate
+- ExtractedDocumentCreate
+- CanonicalImageItem
+- CanonicalActivityItem
+- CanonicalBookData
+- CanonicalRecipeData
+- CanonicalContentItem
+- ClassificationDecision
+- ValidationIssue
+- ValidationResult
+- WordPressExportPayload
+
+B. API / VIEW
+- BatchRead
+- BatchDetailRead
+- CandidateRead
+- CandidateDetailRead
+- ValidationReportRead
+- ExportRead
+- ReprocessRequestCreate
+- ReprocessRequestRead
+
+C. OPERATIONAL
+- GroupingResult
+- ExtractionResult
+- ImageProcessingResult
+- EditorialBuildResult
+- AdapterBuildResult
+- ExportBuildResult
+
+Usa:
+- field validators
+- model validators
+- tipos explícitos
+- enums
+- defaults sensatos
+
+========================================
+10. CONTRATOS INTERNOS ENTRE MÓDULOS
+========================================
+
+Diseña interfaces claras entre módulos.
+
+Quiero contratos explícitos como:
+
+A. GroupingService
+input:
+- SourceBatch + list[SourceFile]
+output:
+- list[GroupingResult]
+
+B. ExtractionService
+input:
+- ContentCandidate + assigned files
+output:
+- list[ExtractionResult]
+
+C. ClassificationService
+input:
+- candidate + extracted docs + batch hints
+output:
+- ClassificationDecision
+
+D. ImageProcessingService
+input:
+- candidate + image files
+output:
+- list[ImageProcessingResult]
+
+E. EditorialBuilderService
+input:
+- classification decision + extracted text + images + metadata
+output:
+- EditorialBuildResult
+
+F. ValidationService
+input:
+- CanonicalContentItem
+output:
+- ValidationResult
+
+G. WordPressAdapter
+input:
+- CanonicalContentItem
+output:
+- AdapterBuildResult
+
+H. ExportBuilder
+input:
+- AdapterBuildResult
+output:
+- ExportBuildResult
+
+No quiero acoplamiento implícito ni diccionarios caóticos sin schema.
+
+========================================
+11. SISTEMA DE ESTADOS
+========================================
+
+Implementa una máquina de estados simple pero seria.
+
+Estados del batch:
+- DETECTED
+- COPYING
+- COPIED
+- SCANNED
+- GROUPED
+- PROCESSING
+- FINISHED
+- FAILED
+- REVIEW_REQUIRED
+
+Estados del candidate:
+- CREATED
+- GROUPED
+- EXTRACTED
+- CLASSIFIED
+- EDITORIAL_BUILT
+- VALIDATED
+- EXPORTED
+- READY
+- REVIEW_REQUIRED
+- FAILED
+
+Estados del export:
+- PENDING
+- BUILT
+- WRITTEN
+- FAILED
+
+Quiero helper methods seguros para transiciones.
+No quiero cambios arbitrarios de string desde cualquier sitio.
+
+========================================
+12. VALIDACIÓN
+========================================
+
+La validación debe existir en dos niveles:
+
+A. VALIDACIÓN CANÓNICA GENERAL
+Ejemplos:
+- final_title no puede estar vacío
+- final_body_html no puede estar vacío
+- category no puede ser UNKNOWN
+- municipality no puede ser UNKNOWN si el caso no admite GENERAL
+- featured image obligatoria
+- structured_fields debe ser dict
+
+B. VALIDACIÓN ESPECÍFICA POR CPT
+Agenda:
+- data-esdeveniment o una fecha equivalente es obligatoria
+- dates-que-es-realitza-buscador obligatoria si el contenido es agenda
+- si hay actividades, validar estructura de actividades
+
+Cultura libro:
+- titol-del-llibre recomendable / obligatorio según reglas
+- autor-a-del-llibre recomendable / obligatorio
+- editorial recomendable
+
+Gastronomía receta:
+- subtype debe ser recipe
+- validar coherencia entre contenido y subtipo
+
+Consells:
+- validar consell
+- validar municipi-consells
+
+Quiero:
+- códigos de error estables
+- severity = INFO / WARNING / ERROR / CRITICAL
+- ValidationResult con:
+  - issues
+  - is_valid
+  - requires_review
+  - blocking_errors_count
+
+========================================
+13. ADAPTER LAYER
+========================================
+
+Implementa una capa real de adapters WordPress, no solo if/else.
+
+Quiero una clase abstracta base como:
+
+BaseWordPressAdapter
+responsabilidades:
+- validate(canonical_content)
+- build_payload(canonical_content)
+- map_municipality()
+- map_featured_image()
+- build_post_content()
+- build_meta_fields()
+- build_taxonomies()
+- get_post_status()
+- get_export_key()
+
+Implementa adapters concretos:
+- AgendaWordPressAdapter
+- NoticiesWordPressAdapter
+- EsportsWordPressAdapter
+- TurismeActiuWordPressAdapter
+- NensIJovesWordPressAdapter
+- CulturaWordPressAdapter
+- GastronomiaWordPressAdapter
+- ConsellsWordPressAdapter
+- EntrevistesWordPressAdapter
+
+Cada adapter debe estar apoyado por:
+- un schema específico
+- un validator específico
+- funciones privadas limpias
+
+Reglas concretas:
+- AgendaWordPressAdapter debe mapear campos de fecha y actividades
+- CulturaWordPressAdapter debe distinguir cultura general vs libro
+- GastronomiaWordPressAdapter debe distinguir genérico vs receta
+- ConsellsWordPressAdapter debe usar "consell" y "municipi-consells" en lugar del patrón habitual
+- el resto pueden heredar del patrón estándar
+
+========================================
+14. MAPEO DE MUNICIPIOS
+========================================
+
+No hardcodees municipio en todos los adapters.
+Crea un servicio o estrategia de mapping.
+
+Ejemplo:
+para la mayoría de CPT:
+- municipi-maresme = "Maresme" si aplica
+- municipi-cerdanya = "Cerdanya" si aplica
+- municipi-bergueda = "Berguedà" si aplica
+
+pero para consells:
+- municipi-consells = "General,Berguedà" o similar
+
+Quiero una estrategia reusable y testeable.
+
+========================================
+15. STRUCTURED_FIELDS CANÓNICOS
+========================================
+
+La parte más importante: define structured_fields internos antes del adapter.
+
+Quiero que structured_fields use nombres internos estables, por ejemplo:
+
+para agenda:
+{
+  "event_date": "2026-04-03",
+  "start_date": null,
+  "end_date": null,
+  "search_dates": ["2026-04-03"],
+  "agenda_category": null,
+  "article_type": null,
+  "activities": [
+    {
+      "title": "...",
+      "datetime_label": "...",
+      "location": "...",
+      "description": "...",
+      "extra_info": "...",
+      "image_ref": "..."
+    }
+  ]
+}
+
+para cultura libro:
+{
+  "book": {
+    "book_title": "Hamnet",
+    "book_author": "Maggie O’Farrell",
+    "edition_year": null,
+    "publisher": "L’Altra editorial",
+    "sponsor_name": null,
+    "sponsor_page": null,
+    "sample_pdf_available": false,
+    "sample_pdf_path": null
+  }
+}
+
+para gastronomía receta:
+{
+  "gastronomy_type": "recipe"
+}
+
+para consells:
+{
+  "consell_type": "Professionals",
+  "municipality_labels": ["General", "Berguedà"]
+}
+
+Quiero nombres internos limpios en inglés y luego mapping al naming WordPress real solo en adapter.
+
+========================================
+16. EXPORT BUILDER
+========================================
+
+Implementa una capa de exportación separada.
+
+Clases:
+- BaseExportBuilder
+- WordPressJsonExportBuilder
+
+Responsabilidades:
+- recibir AdapterBuildResult
+- construir payload final serializable
+- generar checksum
+- escribir archivo JSON
+- devolver ruta y metadata
+
+El JSON debe poder generarse:
+- por artículo
+- o por lote
+
+Debes soportar ambos modos desde diseño, aunque la V1 use uno por artículo por claridad.
+
+El payload debe contener:
+- post fields
+- custom fields
+- taxonomías / municipios
+- metadata técnica si conviene
+- referencias a imágenes optimizadas
+
+========================================
+17. CONTENT BUILDER / EDITORIAL RESULT
+========================================
+
+Aunque la lógica editorial fina puede venir luego, quiero ya su contrato estable.
+
+EditorialBuildResult debe contener:
+- source_title
+- detected_title
+- final_title
+- source_summary
+- final_summary
+- source_body_text
+- final_body_html
+- structured_fields
+- warnings
+- errors
+- editorial_confidence
+- inserted_images
+- featured_image_ref
+
+No quiero que esta clase conozca WordPress.
+Debe seguir siendo neutral.
+
+========================================
+18. IMAGE MODELING
+========================================
+
+Modela bien las imágenes desde la base.
+
+Cada imagen debe poder tener:
+- id interno
+- origen
+- hash
+- width
+- height
+- optimized_path
+- role:
+  - FEATURED
+  - INLINE
+  - GALLERY
+  - BLOCK_CONTEXTUAL
+  - UNKNOWN
+- sort_order
+- candidate association confidence
+
+Quiero que el sistema pueda decidir:
+- cuál será la destacada
+- cuáles irán inline
+- cuáles irán en galería
+- cuáles se quedan sin usar
+
+========================================
+19. REVIEW MODEL
+========================================
+
+Quiero que la revisión quede bien modelada desde el principio.
+
+Define ReviewReason con códigos como:
+- LOW_CLASSIFICATION_CONFIDENCE
+- LOW_EXTRACTION_CONFIDENCE
+- MISSING_FEATURED_IMAGE
+- MISSING_REQUIRED_DATE
+- AMBIGUOUS_CATEGORY
+- AMBIGUOUS_MUNICIPALITY
+- WEAK_GROUPING
+- MISSING_REQUIRED_FIELDS
+- VALIDATION_FAILED
+- EXPORT_FAILED
+
+CanonicalContentItem y ContentCandidate deben poder acumular varios motivos.
+
+========================================
+20. REPROCESADO
+========================================
+
+Diseña desde ya el reprocesado.
+
+Debe haber niveles:
+- reprocesar extracción
+- reprocesar clasificación
+- reprocesar editorial
+- reprocesar export
+- full rebuild del candidate
+
+Quiero que el sistema permita rehacer parcialmente sin borrar todo si no hace falta.
+
+Define:
+- ReprocessingScope enum
+- ReprocessingRequest schema
+- reglas de invalidación de etapas posteriores
+
+========================================
+21. CLASES ABSTRACTAS
+========================================
+
+Implementa abstracciones reales para que el sistema quede limpio.
+
+Quiero como mínimo:
+- BaseGroupingService
+- BaseExtractionService
+- BaseClassificationService
+- BaseImageProcessingService
+- BaseEditorialBuilder
+- BaseValidationService
+- BaseWordPressAdapter
+- BaseExportBuilder
+- BaseNotifier
+
+Y clases concretas iniciales:
+- RuleBasedClassificationService
+- BasicImageProcessingService
+- CanonicalValidationService
+- TelegramNotifier
+- WordPressJsonExportBuilder
+
+========================================
+22. PATRÓN DE REGLAS
+========================================
+
+Quiero que las reglas no estén repartidas en if gigantes.
+
+Diseña un patrón claro de rules o policies.
+
+Ejemplo:
+- MunicipalityRuleset
+- CategoryRuleset
+- SubtypeRuleset
+- FeaturedImageSelectionPolicy
+- AgendaValidationPolicy
+- CulturaBookValidationPolicy
+- GastronomiaRecipeValidationPolicy
+
+Cada ruleset/policy debe ser:
+- fácil de testear
+- fácil de extender
+- desacoplado
+
+========================================
+23. ESTRUCTURA DE CARPETAS DEL PROYECTO
+========================================
+
+Quiero una estructura muy clara, por ejemplo:
+
+app/
+  api/
+  core/
+    enums.py
+    states.py
+    exceptions.py
+    logging.py
+    types.py
+  config/
+    settings.py
+  db/
+    base.py
+    session.py
+    models/
+      source_batch.py
+      source_file.py
+      content_candidate.py
+      extracted_document.py
+      candidate_image.py
+      canonical_content.py
+      validation_report.py
+      wordpress_export.py
+      processing_event.py
+      reprocessing_request.py
+    repositories/
+  schemas/
+    common.py
+    canonical.py
+    extraction.py
+    grouping.py
+    classification.py
+    validation.py
+    editorial.py
+    export.py
+    api.py
+  services/
+    grouping/
+    extraction/
+    classification/
+    editorial/
+    images/
+    validation/
+    export/
+    notifications/
+    reprocessing/
+  adapters/
+    base.py
+    common.py
+    agenda.py
+    cultura.py
+    gastronomia.py
+    consells.py
+    noticies.py
+    esports.py
+    turisme_actiu.py
+    nens_i_joves.py
+    entrevistes.py
+  rules/
+    municipalities.py
+    categories.py
+    subtypes.py
+    validation.py
+    images.py
+  templates/
+  tests/
+  main.py
+
+Si propones otra mejor, explícalo y mantenla igual de clara.
+
+========================================
+24. PRUEBAS
+========================================
+
+Incluye tests reales con pytest para:
+
+- mapeo de municipios estándar
+- mapeo especial de consells
+- validación de agenda sin fecha
+- validación de cultura libro
+- validación de gastronomía receta
+- selección de featured image
+- exportación JSON
+- construcción de payload con adapter correcto
+- transiciones de estado
+- serialización de CanonicalContentItem
+
+========================================
+25. README TÉCNICO DE ESTA FASE
+========================================
+
+Genera un README muy detallado centrado en esta capa técnica.
+
+Debe explicar:
+- qué problema resuelve cada capa
+- qué es el canonical model
+- por qué existen adapters
+- por qué hay structured_fields internos
+- cómo se validan los contenidos
+- cómo se genera el JSON final
+- cómo ampliar reglas
+- cómo añadir un nuevo CPT en el futuro
+- cómo añadir nuevos campos sin romper el sistema
+
+========================================
+26. ESTILO DE IMPLEMENTACIÓN
+========================================
+
+Quiero:
+- Python moderno
+- typing completo
+- funciones pequeñas
+- nombres muy descriptivos
+- nada de código críptico
+- nada de lógica escondida en utilidades genéricas absurdas
+- comentarios útiles
+- docstrings cuando aporten valor
+- separación de responsabilidades estricta
+
+No quiero:
+- diccionarios sin schema por todo el proyecto
+- constantes mágicas desperdigadas
+- if/else gigantes para los CPT
+- nombres de funciones vagos
+- pseudocódigo donde ya puedas dar implementación real
+
+========================================
+27. ORDEN DE ENTREGA
+========================================
+
+Quiero que entregues el trabajo por este orden exacto:
+
+1. árbol final del proyecto
+2. enums, estados y tipos base
+3. settings y .env.example
+4. modelos SQLAlchemy
+5. migración Alembic inicial
+6. repositorios
+7. schemas Pydantic
+8. abstracciones base
+9. rulesets y policies
+10. validation layer
+11. adapters WordPress
+12. export builder
+13. tests
+14. README técnico
+
+========================================
+28. ENTREGABLE MÍNIMO DE ESTA RESPUESTA
+========================================
+
+Empieza devolviendo directamente código real para:
+
+- enums.py
+- states.py
+- settings.py
+- modelos SQLAlchemy completos
+- schemas Pydantic principales
+- BaseWordPressAdapter
+- AgendaWordPressAdapter
+- CulturaWordPressAdapter
+- GastronomiaWordPressAdapter
+- ConsellsWordPressAdapter
+- BaseExportBuilder
+- WordPressJsonExportBuilder
+- ValidationResult y validators principales
+- tests mínimos
+- README técnico inicial
+
+Si necesitas asumir algo, elige la opción más robusta y mantenible y documenta la decisión.
+
+Recuerda:
+- no inventar datos
+- featured_image obligatoria
+- si hay duda -> review
+- canonical model neutral
+- adapters desacoplados
+- structured_fields internos primero
+- WordPress naming solo al final

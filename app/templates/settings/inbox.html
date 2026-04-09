@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuracion - Entrada (Hotfolder)</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #444; font-size: 14px; }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;
+        }
+        input[type="checkbox"] { margin-right: 8px; }
+        .btn { background: #0066cc; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        .btn:hover { background: #0052a3; }
+        .btn-save { background: #28a745; }
+        .btn-save:hover { background: #218838; font-size: 15px; padding: 10px 20px; }
+        .btn-test { background: #6c757d; }
+        .btn-test:hover { background: #5a6268; }
+        .btn-teal { background: #17a2b8; }
+        .btn-teal:hover { background: #138496; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-warning { background: #ffc107; color: #333; }
+        .btn-warning:hover { background: #e0a800; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .help-text { font-size: 12px; color: #666; margin-top: 3px; display: block; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .input-row { display: flex; gap: 15px; }
+        .input-row .form-group { flex: 1; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .test-output { margin-top: 12px; font-weight: bold; font-size: 13px; min-height: 18px; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .status-dot.green { background: #28a745; }
+        .status-dot.red { background: #dc3545; }
+
+        .folder-card { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; overflow: hidden; }
+        .folder-card.disabled-folder { opacity: 0.5; }
+        .folder-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #f8f9fa; border-bottom: 1px solid #ddd; }
+        .folder-header input[type="text"] { width: 250px; font-size: 15px; font-weight: 600; }
+        .folder-body { padding: 16px; }
+        .folder-test-result { margin-top: 10px; padding: 8px 12px; border-radius: 4px; font-size: 12px; display: none; }
+        .folder-test-result.ok { background: #d4edda; color: #155724; display: block; }
+        .folder-test-result.fail { background: #f8d7da; color: #721c24; display: block; }
+        .folder-test-result.loading { background: #fff3cd; color: #856404; display: block; }
+        .folder-test-result.warn { background: #fff3cd; color: #856404; display: block; }
+        .browse-panel { margin-top: 10px; max-height: 180px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; display: none; }
+        .browse-panel .browse-item { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #eee; font-size: 13px; }
+        .browse-panel .browse-item:hover { background: #e8f4fd; }
+        .browse-panel .browse-item.dir { color: #0066cc; }
+        .browse-panel .browse-item.file { color: #666; }
+        .color-badge { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 6px; }
+        .unc-preview { font-size: 11px; color: #888; font-family: monospace; margin-top: 2px; }
+
+        .mode-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-left: 10px; vertical-align: middle; }
+        .mode-badge.smb { background: #dbeafe; color: #1e40af; }
+        .mode-badge.local { background: #dcfce7; color: #166534; }
+        .path-preview { font-size: 11px; color: #888; font-family: monospace; margin-top: 2px; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>
+                7. Entrada
+                {% if active_mode == 'smb' %}(SMB)<span class="mode-badge smb">SMB activo</span>
+                {% else %}(Local)<span class="mode-badge local">Local activo</span>
+                {% endif %}
+            </h2>
+            {% if success %}
+            <div class="alert">Configuracion guardada correctamente.</div>
+            {% endif %}
+            <form id="inbox-form" action="/settings/inbox" method="POST">
+
+                <!-- ======================== CONEXION SMB ======================== -->
+                <div class="section-box" id="section-smb" {% if active_mode != 'smb' %}style="display:none;"{% endif %}>
+                    <h3>Conexion SMB / Synology</h3>
+                    <div class="input-row">
+                        <div class="form-group">
+                            <label>Host / IP del servidor</label>
+                            <input type="text" name="setting_remote_inbox_host" value="{{ values.remote_inbox_host or '' }}" placeholder="192.168.1.x o synology.local">
+                        </div>
+                        <div class="form-group" style="max-width: 120px;">
+                            <label>Puerto</label>
+                            <input type="number" name="setting_remote_inbox_port" value="{{ values.remote_inbox_port or 445 }}">
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <div class="form-group">
+                            <label>Usuario</label>
+                            <input type="text" name="setting_remote_inbox_username" value="{{ values.remote_inbox_username or '' }}" autocomplete="username">
+                        </div>
+                        <div class="form-group">
+                            <label>Contrasena</label>
+                            <input type="password" name="setting_remote_inbox_password" value="{{ values.remote_inbox_password or '' }}" autocomplete="current-password">
+                            <input type="hidden" name="secret_remote_inbox_password" value="on">
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <div class="form-group">
+                            <label>Dominio / Workgroup</label>
+                            <input type="text" name="setting_smb_domain" value="{{ values.smb_domain or '' }}" placeholder="WORKGROUP">
+                        </div>
+                        <div class="form-group" style="max-width: 180px;">
+                            <label>Timeout (seg)</label>
+                            <input type="number" name="setting_remote_inbox_timeout" value="{{ values.remote_inbox_timeout or 30 }}" min="5" max="120">
+                        </div>
+                    </div>
+                    <div style="padding: 12px; background: #f0f7ff; border-radius: 6px; border: 1px solid #cce0ff; margin-bottom: 12px;">
+                        <label style="margin-bottom: 6px;">Recurso compartido (Share)</label>
+                        <div class="input-row" style="margin-bottom: 8px;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <input type="text" name="setting_smb_share_name" id="smb_share_name" value="{{ values.smb_share_name or '' }}" placeholder="Panxing_public, datos...">
+                                <div id="shares-list" style="display:none; margin-top:6px;">
+                                    <select id="share-selector" onchange="onShareSelected()" style="width:100%; padding:6px; border:1px solid #ccc; border-radius:4px;">
+                                        <option value="">-- Selecciona --</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="input-row" style="margin-bottom: 6px;">
+                            <input type="text" id="custom-share-name" placeholder="Nombre personalizado..." style="flex:1; padding:6px 8px; border:1px solid #ccc; border-radius:4px; font-size:13px;">
+                        </div>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-test btn-sm" onclick="discoverShares()">Descubrir</button>
+                            <button type="button" class="btn btn-test btn-sm" onclick="probeCustomShare()">Probar nombre</button>
+                            <button type="button" class="btn btn-teal btn-sm" onclick="testConnection('smb')">Probar conexion</button>
+                        </div>
+                        <div id="shares-result" class="test-output"></div>
+                    </div>
+                </div>
+
+                <!-- ======================== CARPETAS SMB ======================== -->
+                <div class="section-box" id="section-smb-folders" {% if active_mode != 'smb' %}style="display:none;"{% endif %}>
+                    <h3>Carpetas Hotfolder SMB</h3>
+                    <p class="help-text" style="margin-bottom: 15px;">Define las carpetas dentro del share SMB donde el sistema buscara archivos. Cada una tiene su ruta de entrada y su ruta de procesados.</p>
+                    <div id="smb-folders-container"></div>
+                    <button type="button" class="btn btn-test" onclick="addSmbFolder()">+ Anadir carpeta SMB</button>
+                </div>
+
+                <!-- ======================== MODO LOCAL ======================== -->
+                <div class="section-box" id="section-local" {% if active_mode != 'local' %}style="display:none;"{% endif %}>
+                    <h3>Carpeta Base Local</h3>
+                    <p class="help-text">Ruta del directorio local donde se encuentran las carpetas de entrada por municipio.</p>
+                    <div class="input-row">
+                        <div class="form-group" style="flex:2;">
+                            <label>Ruta base local del hotfolder</label>
+                            <input type="text" name="setting_hot_folder_local_path" id="local_base_path" value="{{ values.hot_folder_local_path or '/tmp/hot_folder' }}" placeholder="/datos/hotfolder">
+                        </div>
+                        <div class="form-group" style="flex:0; display:flex; align-items:flex-end; padding-bottom:2px;">
+                            <button type="button" class="btn btn-teal btn-sm" onclick="testLocalBasePath()">Probar ruta</button>
+                        </div>
+                    </div>
+                    <div id="local-base-result" class="test-output"></div>
+                </div>
+
+                <!-- ======================== CARPETAS LOCALES ======================== -->
+                <div class="section-box" id="section-local-folders" {% if active_mode != 'local' %}style="display:none;"{% endif %}>
+                    <h3>Carpetas Hotfolder Local</h3>
+                    <p class="help-text" style="margin-bottom: 15px;">Define las subcarpetas dentro de la ruta base local donde el sistema buscara archivos. Cada una tiene su ruta relativa de entrada y su ruta de procesados.</p>
+                    <div id="local-folders-container"></div>
+                    <button type="button" class="btn btn-test" onclick="addLocalFolder()">+ Anadir carpeta Local</button>
+                </div>
+
+                <hr style="border:0; border-top:1px solid #eee; margin: 25px 0;">
+                <input type="hidden" name="hotfolder_folders_json" id="smb-folders-json-input">
+                <input type="hidden" name="hotfolder_local_folders_json" id="local-folders-json-input">
+                <button type="submit" class="btn btn-save">Guardar Configuracion</button>
+                <div id="global-test-result" class="test-output" style="margin-top: 12px;"></div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const ACTIVE_MODE = '{{ active_mode or "smb" }}';
+        let smbFolders = {{ folders_json | safe }};
+        let localFolders = {{ local_folders_json | safe }};
+        const folderColors = ['#0066cc', '#e67e22', '#27ae60', '#8e44ad', '#c0392b', '#16a085'];
+
+        function escapeHtml(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function getLocalBasePath() {
+            const el = document.getElementById('local_base_path');
+            return el ? el.value || '/tmp/hot_folder' : '/tmp/hot_folder';
+        }
+
+        function buildLocalPreview(relativePath) {
+            const base = getLocalBasePath().replace(/\/$/, '');
+            const cleanRel = (relativePath || '').replace(/^\//, '');
+            return cleanRel ? `${base}/${cleanRel}` : base;
+        }
+
+        function buildUncPreview(path) {
+            const share = document.getElementById('smb_share_name') ? document.getElementById('smb_share_name').value || '...' : '...';
+            const cleanPath = (path || '').replace(/\//g, '\\');
+            return `\\\\${location.hostname || 'server'}\\${share}${cleanPath}`;
+        }
+
+        // ---- SMB Folders ----
+        function renderSmbFolders() {
+            const container = document.getElementById('smb-folders-container');
+            container.innerHTML = '';
+            if (smbFolders.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px; color:#aaa; font-size:14px;">No hay carpetas SMB configuradas.</div>';
+                syncJsonInputs();
+                return;
+            }
+            smbFolders.forEach((f, i) => {
+                const color = folderColors[i % folderColors.length];
+                const disabled = !f.enabled;
+                const pathPreview = buildUncPreview(f.base_path);
+                container.innerHTML += `
+                <div class="folder-card ${disabled ? 'disabled-folder' : ''}" id="smb-folder-${i}">
+                    <div class="folder-header">
+                        <label style="display:flex; align-items:center; cursor:pointer; margin:0;">
+                            <input type="checkbox" ${f.enabled ? 'checked' : ''} onchange="toggleSmbFolder(${i})" style="width:18px;height:18px;">
+                        </label>
+                        <span class="color-badge" style="background:${color};"></span>
+                        <input type="text" value="${escapeHtml(f.name)}" onchange="updateSmbFolderField(${i},'name',this.value)" placeholder="Nombre de la carpeta" style="flex:1; max-width:250px;">
+                        <span style="flex:1; font-size:12px; color:#888;" id="unc-preview-${i}">${escapeHtml(pathPreview)}</span>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="removeSmbFolder(${i})" title="Eliminar">X</button>
+                    </div>
+                    <div class="folder-body">
+                        <div class="input-row">
+                            <div class="form-group">
+                                <label>Ruta Hotfolder (dentro del share)</label>
+                                <div style="display:flex; gap:6px;">
+                                    <input type="text" value="${escapeHtml(f.base_path)}" onchange="updateSmbFolderField(${i},'base_path',this.value); updateUncPreview(${i})" placeholder="/Carpeta" id="smb-base-path-${i}">
+                                    <button type="button" class="btn btn-test btn-sm" onclick="browseSmbSubfolders(${i}, 'smb-base-path-${i}')" title="Examinar carpetas">Examinar</button>
+                                </div>
+                                <div class="browse-panel" id="smb-browse-panel-${i}"></div>
+                            </div>
+                            <div class="form-group">
+                                <label>Ruta Procesados</label>
+                                <input type="text" value="${escapeHtml(f.processed_path)}" onchange="updateSmbFolderField(${i},'processed_path',this.value)" placeholder="/Carpeta/processed">
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-teal btn-sm" onclick="testSmbFolderWrite(${i},true)">Test (escribir y borrar)</button>
+                            <button type="button" class="btn btn-warning btn-sm" onclick="testSmbFolderWrite(${i},false)">Test con archivo (sin borrar)</button>
+                        </div>
+                        <div id="smb-folder-result-${i}" class="folder-test-result"></div>
+                    </div>
+                </div>`;
+            });
+            syncJsonInputs();
+        }
+
+        function addSmbFolder() { smbFolders.push({ name: "Nueva carpeta", base_path: "/", processed_path: "/processed", enabled: true }); renderSmbFolders(); }
+        function removeSmbFolder(i) { smbFolders.splice(i,1); renderSmbFolders(); }
+        function toggleSmbFolder(i) {
+            smbFolders[i].enabled = !smbFolders[i].enabled;
+            document.getElementById(`smb-folder-${i}`).classList.toggle('disabled-folder', !smbFolders[i].enabled);
+            syncJsonInputs();
+        }
+        function updateSmbFolderField(i, field, value) { smbFolders[i][field] = value; syncJsonInputs(); }
+        function updateUncPreview(i) {
+            const preview = document.getElementById(`unc-preview-${i}`);
+            if (preview) preview.textContent = buildUncPreview(smbFolders[i].base_path);
+        }
+
+        async function testSmbFolderWrite(i, deleteAfter) {
+            const f = smbFolders[i];
+            const resultEl = document.getElementById(`smb-folder-result-${i}`);
+            resultEl.className = 'folder-test-result loading';
+            resultEl.textContent = deleteAfter ? `Probando "${f.name}"...` : `Probando "${f.name}" (sin borrar)...`;
+            try {
+                const res = await fetch('/settings/test/smb/write-folder', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ base_path: f.base_path, processed_path: f.processed_path, delete_after: deleteAfter })
+                });
+                const data = await res.json();
+                resultEl.className = 'folder-test-result ' + (data.success ? (deleteAfter ? 'ok' : 'warn') : 'fail');
+                resultEl.innerHTML = (data.success ? '<span class="status-dot green"></span>' : '<span class="status-dot red"></span>') + escapeHtml(data.message);
+            } catch(e) {
+                resultEl.className = 'folder-test-result fail';
+                resultEl.textContent = 'Error de conexion.';
+            }
+        }
+
+        async function browseSmbSubfolders(i, inputId) {
+            const panel = document.getElementById(`smb-browse-panel-${i}`);
+            const currentPath = document.getElementById(inputId).value || '';
+            panel.style.display = 'block';
+            panel.innerHTML = '<div style="padding:8px;color:#888;">Cargando...</div>';
+            try {
+                const res = await fetch('/settings/test/smb/subfolders', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ base_path: currentPath })
+                });
+                const data = await res.json();
+                if (data.success && data.folders && data.folders.length > 0) {
+                    let html = '';
+                    if (currentPath && currentPath !== '/') {
+                        html += `<div class="browse-item dir" onclick="navigateSmbBrowse(${i},'${inputId}','')">.. (raiz)</div>`;
+                    }
+                    data.folders.forEach(f => {
+                        const newPath = currentPath === '/' ? `/${f.name}` : `${currentPath}/${f.name}`;
+                        if (f.is_dir) {
+                            html += `<div class="browse-item dir" onclick="navigateSmbBrowse(${i},'${inputId}','${escapeHtml(newPath)}')">[DIR] ${escapeHtml(f.name)}</div>`;
+                        } else {
+                            html += `<div class="browse-item file">[FILE] ${escapeHtml(f.name)}</div>`;
+                        }
+                    });
+                    panel.innerHTML = html;
+                } else {
+                    panel.innerHTML = '<div style="padding:8px;color:#888;">Carpeta vacia o sin acceso.</div>';
+                }
+            } catch(e) {
+                panel.innerHTML = '<div style="padding:8px;color:red;">Error de conexion.</div>';
+            }
+        }
+
+        function navigateSmbBrowse(i, inputId, path) {
+            document.getElementById(inputId).value = path;
+            updateSmbFolderField(i, 'base_path', path);
+            updateUncPreview(i);
+            browseSmbSubfolders(i, inputId);
+        }
+
+        // ---- Local Folders ----
+        function renderLocalFolders() {
+            const container = document.getElementById('local-folders-container');
+            container.innerHTML = '';
+            if (localFolders.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px; color:#aaa; font-size:14px;">No hay carpetas locales configuradas.</div>';
+                syncJsonInputs();
+                return;
+            }
+            localFolders.forEach((f, i) => {
+                const color = folderColors[i % folderColors.length];
+                const disabled = !f.enabled;
+                const pathPreview = buildLocalPreview(f.base_path);
+                container.innerHTML += `
+                <div class="folder-card ${disabled ? 'disabled-folder' : ''}" id="local-folder-${i}">
+                    <div class="folder-header">
+                        <label style="display:flex; align-items:center; cursor:pointer; margin:0;">
+                            <input type="checkbox" ${f.enabled ? 'checked' : ''} onchange="toggleLocalFolder(${i})" style="width:18px;height:18px;">
+                        </label>
+                        <span class="color-badge" style="background:${color};"></span>
+                        <input type="text" value="${escapeHtml(f.name)}" onchange="updateLocalFolderField(${i},'name',this.value)" placeholder="Nombre de la carpeta" style="flex:1; max-width:250px;">
+                        <span style="flex:1; font-size:12px; color:#888;" id="local-preview-${i}">${escapeHtml(pathPreview)}</span>
+                        <button type="button" class="btn btn-danger btn-sm" onclick="removeLocalFolder(${i})" title="Eliminar">X</button>
+                    </div>
+                    <div class="folder-body">
+                        <div class="input-row">
+                            <div class="form-group">
+                                <label>Subcarpeta Hotfolder (relativa a la base)</label>
+                                <input type="text" value="${escapeHtml(f.base_path)}" onchange="updateLocalFolderField(${i},'base_path',this.value); updateLocalPathPreview(${i})" placeholder="/Carpeta" id="local-base-path-${i}">
+                            </div>
+                            <div class="form-group">
+                                <label>Subcarpeta Procesados (relativa)</label>
+                                <input type="text" value="${escapeHtml(f.processed_path)}" onchange="updateLocalFolderField(${i},'processed_path',this.value)" placeholder="/Carpeta/processed">
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-teal btn-sm" onclick="testLocalFolderWrite(${i},true)">Test (escribir y borrar)</button>
+                            <button type="button" class="btn btn-warning btn-sm" onclick="testLocalFolderWrite(${i},false)">Test con archivo (sin borrar)</button>
+                        </div>
+                        <div id="local-folder-result-${i}" class="folder-test-result"></div>
+                    </div>
+                </div>`;
+            });
+            syncJsonInputs();
+        }
+
+        function addLocalFolder() { localFolders.push({ name: "Nueva carpeta", base_path: "/", processed_path: "/processed", enabled: true }); renderLocalFolders(); }
+        function removeLocalFolder(i) { localFolders.splice(i,1); renderLocalFolders(); }
+        function toggleLocalFolder(i) {
+            localFolders[i].enabled = !localFolders[i].enabled;
+            document.getElementById(`local-folder-${i}`).classList.toggle('disabled-folder', !localFolders[i].enabled);
+            syncJsonInputs();
+        }
+        function updateLocalFolderField(i, field, value) { localFolders[i][field] = value; syncJsonInputs(); }
+        function updateLocalPathPreview(i) {
+            const preview = document.getElementById(`local-preview-${i}`);
+            if (preview) preview.textContent = buildLocalPreview(localFolders[i].base_path);
+        }
+
+        async function testLocalFolderWrite(i, deleteAfter) {
+            const f = localFolders[i];
+            const resultEl = document.getElementById(`local-folder-result-${i}`);
+            resultEl.className = 'folder-test-result loading';
+            resultEl.textContent = deleteAfter ? `Probando "${f.name}"...` : `Probando "${f.name}" (sin borrar)...`;
+            try {
+                const res = await fetch('/settings/test/local/write-folder', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ base_path: f.base_path, processed_path: f.processed_path, delete_after: deleteAfter })
+                });
+                const data = await res.json();
+                resultEl.className = 'folder-test-result ' + (data.success ? (deleteAfter ? 'ok' : 'warn') : 'fail');
+                resultEl.innerHTML = (data.success ? '<span class="status-dot green"></span>' : '<span class="status-dot red"></span>') + escapeHtml(data.message);
+            } catch(e) {
+                resultEl.className = 'folder-test-result fail';
+                resultEl.textContent = 'Error de conexion.';
+            }
+        }
+
+        // ---- Common ----
+        function syncJsonInputs() {
+            document.getElementById('smb-folders-json-input').value = JSON.stringify(smbFolders);
+            document.getElementById('local-folders-json-input').value = JSON.stringify(localFolders);
+        }
+
+        // ---- SMB shares ----
+        async function discoverShares() {
+            const resultEl = document.getElementById('shares-result');
+            const listEl = document.getElementById('shares-list');
+            resultEl.textContent = 'Buscando recursos...'; resultEl.style.color = '#666';
+            listEl.style.display = 'none';
+            try {
+                const res = await fetch('/settings/test/smb/shares', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({})});
+                const data = await res.json();
+                if (data.success && data.shares && data.shares.length > 0) {
+                    const sel = document.getElementById('share-selector');
+                    sel.innerHTML = '<option value="">-- Selecciona --</option>';
+                    data.shares.forEach(s => {
+                        const lbl = s.type === 'special' ? '[Sistema]' : `[${s.entries} elementos]`;
+                        const opt = document.createElement('option');
+                        opt.value = s.name; opt.textContent = `${s.name}  ${lbl}`;
+                        if (s.type === 'special') opt.style.color = '#888';
+                        sel.appendChild(opt);
+                    });
+                    listEl.style.display = 'block';
+                    resultEl.innerHTML = `<span class="status-dot green"></span>${data.message}`;
+                    resultEl.style.color = 'green';
+                } else {
+                    resultEl.innerHTML = `<span class="status-dot red"></span>${data.message}`;
+                    resultEl.style.color = 'red';
+                }
+            } catch(e) { resultEl.textContent = 'Error de conexion.'; resultEl.style.color = 'red'; }
+        }
+
+        async function probeCustomShare() {
+            const name = document.getElementById('custom-share-name').value.trim();
+            if (!name) return;
+            const resultEl = document.getElementById('shares-result');
+            resultEl.textContent = `Probando "${name}"...`; resultEl.style.color = '#666';
+            try {
+                const res = await fetch('/settings/test/smb/shares', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({custom_names:[name]})});
+                const data = await res.json();
+                if (data.success && data.shares && data.shares.length > 0) {
+                    document.getElementById('smb_share_name').value = name;
+                    document.getElementById('custom-share-name').value = '';
+                    resultEl.innerHTML = `<span class="status-dot green"></span>"${name}" encontrado (${data.shares[0].entries} elementos)`;
+                    resultEl.style.color = 'green';
+                    smbFolders.forEach((_, i) => updateUncPreview(i));
+                } else {
+                    resultEl.innerHTML = `<span class="status-dot red"></span>"${name}" no encontrado o sin acceso.`;
+                    resultEl.style.color = 'red';
+                }
+            } catch(e) { resultEl.textContent = 'Error.'; resultEl.style.color = 'red'; }
+        }
+
+        function onShareSelected() {
+            const val = document.getElementById('share-selector').value;
+            document.getElementById('smb_share_name').value = val;
+            smbFolders.forEach((_, i) => updateUncPreview(i));
+        }
+
+        async function testConnection(type) {
+            const el = document.getElementById('global-test-result');
+            el.textContent = 'Probando...'; el.style.color = '#666';
+            try {
+                const res = await fetch(`/settings/test/${type}`, {method:'POST'});
+                const data = await res.json();
+                el.innerHTML = `<span class="status-dot ${data.success?'green':'red'}"></span>${data.message}`;
+                el.style.color = data.success ? 'green' : 'red';
+            } catch(e) { el.textContent = 'Error.'; el.style.color = 'red'; }
+        }
+
+        async function testLocalBasePath() {
+            const el = document.getElementById('local-base-result');
+            el.textContent = 'Probando ruta local...'; el.style.color = '#666';
+            try {
+                const res = await fetch('/settings/test/local', {method:'POST'});
+                const data = await res.json();
+                el.innerHTML = `<span class="status-dot ${data.success?'green':'red'}"></span>${data.message}`;
+                el.style.color = data.success ? 'green' : 'red';
+            } catch(e) { el.textContent = 'Error.'; el.style.color = 'red'; }
+        }
+
+        document.getElementById('inbox-form').addEventListener('submit', function() { syncJsonInputs(); });
+        renderSmbFolders();
+        renderLocalFolders();
+    </script>
+</body>
+</html>
