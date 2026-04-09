@@ -2,58 +2,298 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Detalle Lote: {{ batch.external_name }}</title>
+    <title>Lote: {{ batch.external_name }}</title>
     <style>
-        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
-        .container { max-width: 1000px; margin: 0 auto; }
-        .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        a.back { color: #666; text-decoration: none; display: inline-block; margin-bottom: 20px; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1100px; margin: 0 auto; }
+
+        a.back { color: #666; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; font-size: 14px; }
         a.back:hover { color: #000; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
-        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }
-        .status-REVIEW_REQUIRED { background: #ffeeba; color: #856404; }
-        .status-EXPORTED { background: #d4edda; color: #155724; }
+
+        .card { background: #fff; padding: 20px 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 16px; }
+        .card h2, .card h3 { margin-top: 0; color: #2c3e50; font-size: 16px; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 14px; }
+
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 24px; }
+        .info-item { display: flex; flex-direction: column; }
+        .info-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+        .info-value { font-size: 14px; font-weight: 600; color: #2c3e50; word-break: break-all; }
+        .info-value.mono { font-family: monospace; font-size: 12px; }
+
+        .status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .status-DETECTED { background: #e8f4fd; color: #0369a1; }
+        .status-COPYING, .status-COPIED, .status-SCANNED, .status-GROUPED { background: #fef3c7; color: #92400e; }
+        .status-PROCESSING { background: #fef3c7; color: #92400e; animation: pulse 1.5s infinite; }
+        .status-FINISHED { background: #dcfce7; color: #166534; }
         .status-FAILED { background: #f8d7da; color: #721c24; }
-        .btn { background: #0066cc; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 13px;}
-        .btn:hover { background: #0052a3; }
+        .status-REVIEW_REQUIRED { background: #fff3cd; color: #856404; }
+        .status-CREATED { background: #e8f4fd; color: #0369a1; }
+        .status-GROUPED { background: #fef3c7; color: #92400e; }
+        .status-EXTRACTED { background: #e0f2fe; color: #075985; }
+        .status-CLASSIFIED { background: #f0fdf4; color: #166534; }
+        .status-EDITORIAL_BUILT { background: #ecfdf5; color: #065f46; }
+        .status-VALIDATED { background: #dcfce7; color: #166534; }
+        .status-EXPORTED { background: #d1fae5; color: #065f46; }
+        .status-READY { background: #d1fae5; color: #065f46; }
+        .status-PENDING { background: #f3f4f6; color: #6b7280; }
+
+        .muni-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .muni-BERGUEDA { background: #dbeafe; color: #1e40af; }
+        .muni-CERDANYA { background: #ffedd5; color: #9a3412; }
+        .muni-MARESME { background: #dcfce7; color: #166534; }
+        .muni-GENERAL { background: #f3e8ff; color: #6b21a8; }
+
+        .btn { background: #0066cc; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 12px; text-decoration: none; display: inline-block; }
+        .btn:hover { background: #0052a3; color: white; text-decoration: none; }
+        .btn-success { background: #28a745; } .btn-success:hover { background: #218838; }
+        .btn-warning { background: #ffc107; color: #333; } .btn-warning:hover { background: #e0a800; color: #333; }
+        .btn-danger { background: #dc3545; } .btn-danger:hover { background: #c82333; }
+        .btn-sm { padding: 4px 10px; font-size: 11px; }
+
+        .section-tabs { display: flex; gap: 0; margin-bottom: 0; }
+        .section-tab { padding: 10px 20px; background: #f0f0f0; border: 1px solid #ddd; border-bottom: none; cursor: pointer; font-size: 13px; font-weight: 600; color: #666; border-radius: 8px 8px 0 0; margin-right: 2px; }
+        .section-tab.active { background: #fff; color: #2c3e50; border-color: #ddd; }
+        .section-panel { display: none; border: 1px solid #ddd; border-top: 1px solid #ddd; border-radius: 0 0 8px 8px; background: #fff; padding: 16px; }
+        .section-panel.active { display: block; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: #f8f9fa; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; }
+        tr:hover { background: #f8fafc; }
+
+        .timeline { padding: 0; list-style: none; max-height: 400px; overflow-y: auto; }
+        .timeline-item { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+        .timeline-item:last-child { border-bottom: none; }
+        .timeline-time { color: #888; font-size: 11px; min-width: 70px; white-space: nowrap; }
+        .timeline-level { min-width: 16px; text-align: center; }
+        .timeline-level .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+        .dot.INFO { background: #0066cc; }
+        .dot.WARNING { background: #f59e0b; }
+        .dot.ERROR { background: #dc3545; }
+        .timeline-message { flex: 1; }
+        .timeline-stage { font-size: 11px; color: #aaa; background: #f5f5f5; padding: 1px 6px; border-radius: 3px; margin-left: 4px; }
+
+        .error-box { background: #f8d7da; color: #721c24; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-top: 8px; }
+        .review-box { background: #fff3cd; color: #856404; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-top: 8px; }
+
+        .confidence-bar { display: inline-block; width: 60px; height: 6px; background: #e0e0e0; border-radius: 3px; vertical-align: middle; margin-left: 6px; }
+        .confidence-bar .fill { height: 100%; border-radius: 3px; }
+        .fill.high { background: #28a745; }
+        .fill.medium { background: #f59e0b; }
+        .fill.low { background: #dc3545; }
+
+        .progress-bar { display: flex; gap: 2px; height: 4px; width: 80px; margin-top: 4px; }
+        .progress-bar .step { flex: 1; border-radius: 2px; background: #e0e0e0; }
+        .progress-bar .step.done { background: #28a745; }
+        .progress-bar .step.current { background: #f59e0b; }
+        .progress-bar .step.error { background: #dc3545; }
+
+        .empty-state { text-align: center; padding: 30px; color: #aaa; font-size: 14px; }
+        .actions-bar { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
+
+        .count-badge { display: inline-block; background: #f0f0f0; padding: 1px 6px; border-radius: 8px; font-size: 11px; color: #666; margin-left: 4px; }
     </style>
 </head>
 <body>
     <div class="container">
         <a href="/" class="back">&larr; Volver al panel</a>
-        
+
+        <!-- Header del lote -->
         <div class="card">
-            <h2>Lote: {{ batch.external_name }}</h2>
-            <p><strong>Ruta:</strong> {{ batch.original_path }}</p>
-            <p><strong>Estado:</strong> <span class="status-badge status-{{ batch.status.value }}">{{ batch.status.value }}</span></p>
+            <h2>{{ batch.external_name }}</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">Estado</span>
+                    <span class="info-value"><span class="status-badge status-{{ batch.status }}">{{ batch.status }}</span></span>
+                    {% if batch.error_message %}
+                    <div class="error-box">{{ batch.error_message }}</div>
+                    {% endif %}
+                    {% if batch.review_reason %}
+                    <div class="review-box">{{ batch.review_reason }}</div>
+                    {% endif %}
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Municipio</span>
+                    <span class="info-value"><span class="muni-badge muni-{{ batch.municipality }}">{{ batch.municipality or '?' }}</span></span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Categoria</span>
+                    <span class="info-value">{{ batch.category or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Ruta origen</span>
+                    <span class="info-value mono">{{ batch.original_path }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Detectado</span>
+                    <span class="info-value">{{ batch.detected_at[:19] if batch.detected_at else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Iniciado</span>
+                    <span class="info-value">{{ batch.started_at[:19] if batch.started_at else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Finalizado</span>
+                    <span class="info-value">{{ batch.finished_at[:19] if batch.finished_at else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Archivos</span>
+                    <span class="info-value">{{ files|length }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Candidatos</span>
+                    <span class="info-value">{{ candidates|length }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">SHA256</span>
+                    <span class="info-value mono" style="font-size:10px;">{{ (batch.batch_sha256 or '')[:24] }}...</span>
+                </div>
+            </div>
+            <div id="batch-progress" style="margin-top: 10px;"></div>
         </div>
 
-        <div class="card">
-            <h3>Candidatos a Artículo ({{ candidates|length }})</h3>
+        <!-- Tabs: Candidatos | Archivos | Timeline -->
+        <div class="section-tabs">
+            <button class="section-tab active" onclick="showSection('candidates', this)">Candidatos <span class="count-badge">{{ candidates|length }}</span></button>
+            <button class="section-tab" onclick="showSection('files', this)">Archivos <span class="count-badge">{{ files|length }}</span></button>
+            <button class="section-tab" onclick="showSection('timeline', this)">Timeline <span class="count-badge">{{ events|length }}</span></button>
+        </div>
+
+        <!-- Candidatos -->
+        <div class="section-panel active" id="panel-candidates">
+            {% if candidates %}
             <table>
                 <thead>
                     <tr>
-                        <th>ID Candidato</th>
-                        <th>Agrupación</th>
+                        <th>Candidato</th>
+                        <th>Municipio / Cat</th>
+                        <th>Confianza</th>
                         <th>Estado</th>
-                        <th>Acción</th>
+                        <th>Titulo</th>
+                        <th>Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for candidate in candidates %}
-                    <tr>
-                        <td>{{ candidate.candidate_key }}</td>
-                        <td>{{ candidate.grouping_strategy.value }} ({{ (candidate.grouping_confidence * 100)|int }}%)</td>
-                        <td><span class="status-badge status-{{ candidate.status.value }}">{{ candidate.status.value }}</span></td>
-                        <td><a href="/candidate/{{ candidate.id }}" class="btn">Revisar</a></td>
+                    {% for c in candidates %}
+                    <tr id="row-{{ c.id }}">
+                        <td>
+                            <strong style="font-size:13px;">{{ c.candidate_key }}</strong>
+                            {% if c.requires_review %}
+                            <div style="font-size:11px; color:#856404;">Requiere revision</div>
+                            {% endif %}
+                            {% if c.review_reason %}
+                            <div style="font-size:11px; color:#dc3545;">{{ c.review_reason }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if c.municipality %}<span class="muni-badge muni-{{ c.municipality }}">{{ c.municipality }}</span><br>{% endif %}
+                            <span style="font-size:12px; color:#666;">{{ c.category or '-' }}</span>
+                        </td>
+                        <td>
+                            {% if c.canonical %}
+                            <span style="font-size:12px;">{{ ((c.canonical.classification_confidence * 100)|int) }}%</span>
+                            <div class="confidence-bar"><div class="fill {% if c.canonical.classification_confidence >= 0.7 %}high{% elif c.canonical.classification_confidence >= 0.4 %}medium{% else %}low{% endif %}" style="width:{{ (c.canonical.classification_confidence * 100)|int }}%"></div></div>
+                            {% else %}
+                            <span style="font-size:12px; color:#aaa;">-</span>
+                            {% endif %}
+                        </td>
+                        <td><span class="status-badge status-{{ c.status }}">{{ c.status }}</span></td>
+                        <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            {{ (c.canonical.final_title or c.title_hint or '-')[:60] }}
+                            {% if c.canonical and c.canonical.errors %}
+                            <div style="font-size:11px; color:#dc3545;">{{ c.canonical.errors|length }} error(es)</div>
+                            {% endif %}
+                            {% if c.canonical and c.canonical.warnings %}
+                            <div style="font-size:11px; color:#f59e0b;">{{ c.canonical.warnings|length }} aviso(s)</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="/candidate/{{ c.id }}" class="btn btn-sm">Revisar</a>
+                        </td>
                     </tr>
-                    {% else %}
-                    <tr><td colspan="4">No se detectaron candidatos en este lote.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
+            {% else %}
+            <div class="empty-state">No se detectaron candidatos en este lote.</div>
+            {% endif %}
+        </div>
+
+        <!-- Archivos -->
+        <div class="section-panel" id="panel-files">
+            {% if files %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Extension</th>
+                        <th>Tamano</th>
+                        <th>Rol</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in files %}
+                    <tr>
+                        <td><strong>{{ f.file_name }}</strong></td>
+                        <td><span style="background:#f0f0f0; padding:2px 6px; border-radius:3px; font-size:11px;">{{ f.extension }}</span></td>
+                        <td>{{ (f.file_size_bytes / 1024)|round(1) }} KB</td>
+                        <td><span style="font-size:12px;">{{ f.file_role }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">No hay archivos en este lote.</div>
+            {% endif %}
+        </div>
+
+        <!-- Timeline -->
+        <div class="section-panel" id="panel-timeline">
+            {% if events %}
+            <ul class="timeline">
+                {% for e in events %}
+                <li class="timeline-item">
+                    <span class="timeline-time">{{ e.created_at[11:19] if e.created_at else '-' }}</span>
+                    <span class="timeline-level"><span class="dot {{ e.level }}"></span></span>
+                    <span class="timeline-message">
+                        {{ e.message }}
+                        <span class="timeline-stage">{{ e.stage }}</span>
+                    </span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="empty-state">No hay eventos registrados para este lote.</div>
+            {% endif %}
         </div>
     </div>
+
+    <script>
+        const STATUS_ORDER = ['DETECTED', 'COPYING', 'COPIED', 'SCANNED', 'GROUPED', 'PROCESSING', 'FINISHED', 'REVIEW_REQUIRED', 'FAILED'];
+        const BATCH_STATUS = '{{ batch.status }}';
+
+        function progressBar(status) {
+            const idx = STATUS_ORDER.indexOf(status);
+            if (idx < 0) return '';
+            let html = '<div class="progress-bar" title="' + status + '">';
+            STATUS_ORDER.forEach((s, i) => {
+                let cls = '';
+                if (i < idx) cls = 'done';
+                else if (i === idx) cls = s === 'FAILED' ? 'error' : 'current';
+                html += '<div class="step ' + cls + '"></div>';
+            });
+            html += '</div>';
+            return html;
+        }
+
+        document.getElementById('batch-progress').innerHTML = progressBar(BATCH_STATUS);
+
+        function showSection(name, el) {
+            document.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.section-panel').forEach(p => p.classList.remove('active'));
+            el.classList.add('active');
+            document.getElementById('panel-' + name).classList.add('active');
+        }
+    </script>
 </body>
 </html>

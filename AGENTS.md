@@ -1,108 +1,187 @@
 # Panxing Contenidos - Agent Guidelines
 
+## Purpose
+This is the main repository-specific instruction file for coding agents working in this project.
+
+## Rule Files
+- No `.cursor/rules/` files were found.
+- No `.cursorrules` file was found.
+- No `.github/copilot-instructions.md` file was found.
+- This `AGENTS.md` is the primary rule file for agentic work here.
+
 ## Project Overview
+Panxing Contenidos is an editorial content pipeline built with FastAPI + SQLAlchemy.
+It ingests PDF, DOCX, and image files from SMB or local hotfolders, classifies them by municipality and category, builds editorial content, and exports WordPress JSON.
 
-Editorial content pipeline (FastAPI + SQLAlchemy). Ingests documents (PDF/DOCX/images) from SMB/FTP/local hotfolders, classifies them by municipality (Bergueda, Cerdanya, Maresme) and category (Agenda, Noticies, Esports, etc.), and exports to WordPress JSON format. Spanish/Catalan language for all comments, docstrings, and user-facing strings.
+Municipalities: `BERGUEDA`, `CERDANYA`, `MARESME`, `GENERAL`
+Categories: `AGENDA`, `NOTICIES`, `ESPORTS`, `TURISME_ACTIU`, `NENS_I_JOVES`, `CULTURA`, `GASTRONOMIA`, `CONSELLS`, `ENTREVISTES`
 
-## Commands
+## Repository Map
+```text
+main.py                          FastAPI entry point and watcher startup
+app/config/settings.py           Pydantic settings from env/.env
+app/core/                        Enums, states, domain constants
+app/db/                          SQLAlchemy models, session, repositories
+app/api/routes/                  API and panel routes
+app/services/                    Business logic and pipeline services
+app/adapters/                    WordPress export adapters per category
+app/templates/                   Jinja2 templates for panel/settings
+tests/                           Pytest test suite
+ejemplos_exportaciones/          Real JSON export examples per category
+```
+
+## Environment
+- Python 3.11
+- Virtualenv: `venv/`
+- Dev database: `editorial.db`
+- Docker dev/prod files exist
+- This workspace is not a git repository
+
+## Install and Run
+Activate the environment first:
 
 ```bash
-# Activate environment
 source venv/bin/activate
+```
 
-# Install all dependencies
+Install dependencies:
+
+```bash
 pip install -r requirements.txt -r requirements_api.txt -r requirements_remote.txt -r requirements_watcher.txt
+```
 
-# Run the application
+Run locally:
+
+```bash
 python main.py
-# or with hot reload:
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
+START_WATCHER=False uvicorn main:app --host 0.0.0.0 --port 8000
+```
 
-# Run all tests
+Docker:
+
+```bash
+cp .env.example .env
+./deploy.sh dev up
+cp .env.production.example .env.production
+./deploy.sh prod up
+```
+
+## Test Commands
+Run all tests:
+
+```bash
 python -m pytest tests/ -v
+python -m pytest tests/ -v --tb=short
+```
 
-# Run a single test file
+Run a single file:
+
+```bash
 python -m pytest tests/test_inbox.py -v
+```
 
-# Run a single test by name
+Run one test by pattern or exact node:
+
+```bash
 python -m pytest tests/test_phase2.py -v -k "test_cleaning_pipeline"
-
-# Run tests with output
-python -m pytest tests/ -v --tb=short 2>&1 | head -80
+python -m pytest tests/test_phase2.py::test_cleaning_pipeline -v
 ```
 
-## Architecture
+Debugging helper:
 
-```
-main.py                     # FastAPI entry point, mounts routers, starts WatcherService
-app/
-  config/settings.py         # Pydantic BaseSettings, loads .env
-  core/                     # Domain enums (states, categories, municipalities)
-  db/                       # SQLAlchemy 2.0 models, session, repositories
-  services/                 # Business logic (pipeline stages)
-    pipeline/orchestrator   # Main pipeline coordinator
-    remote/clients.py       # SMB/FTP/SFTP/Local clients
-    inbox/                  # Inbox abstraction (factory + polling)
-    settings/               # SettingsService + SettingsResolver (DB + env + cache)
-  api/routes/               # FastAPI routers (api_v1, panel, settings, inbox)
-  adapters/                 # WordPress CPT-specific field mappers
-  templates/settings/       # Jinja2 HTML for settings UI
-tests/                      # pytest tests (test_base, test_phase2-5, test_inbox)
+```bash
+python -m pytest tests/test_phase5.py -v --tb=short -x
 ```
 
-**Key patterns:** Abstract base classes per service, factory pattern for adapters and inbox clients, repository pattern with generics, module-level singletons. Settings use a hybrid DB-first / env-fallback / in-memory cache approach (`SettingsResolver`).
+## Lint / Validation
+There is no dedicated lint config in the repository.
+Use syntax validation when needed:
+
+```bash
+python -m py_compile app/services/pipeline/flow_service.py
+python -m py_compile main.py app/api/routes/flows.py app/services/export/flow_export.py
+```
+
+## Architecture Notes
+- Settings are DB-first with env fallback via `SettingsResolver`
+- Repositories follow a generic repository pattern
+- Adapters map canonical content to WordPress payloads
+- Flow-based processing is the main operational path
+- Remote I/O supports SMB and FTP; local mode mirrors the same concepts
+- Tables are created with `Base.metadata.create_all()` at startup
+- No Alembic migrations are used
 
 ## Code Style
+- Comments, docstrings, and user-facing strings must be in Spanish or Catalan
+- Variable names, function names, class names, and module names stay in English
+- Use 4 spaces; do not use tabs
+- Prefer ASCII unless accents are required for Catalan/Spanish text
+- Keep changes small and focused; avoid unrelated refactors
+- Do not add comments unless the logic is genuinely non-obvious
+- Do not add emojis in code, docs, or commit messages unless requested
 
-- **Language:** All comments, docstrings, and user-facing strings in Spanish/Catalan. Variable/method names in English.
-- **Indentation:** 4 spaces. No tabs.
-- **Imports:** stdlib, then third-party, then `app.*`. Use absolute imports: `from app.db.models import SourceBatch`.
-- **Type hints:** Use on function signatures and return types. Prefer `Optional[X]` over `X | None` for consistency.
-- **Naming:** `PascalCase` classes, `snake_case` functions/variables, `UPPER_SNAKE_CASE` enum values and constants.
-- **SQLAlchemy:** Use `mapped_column()` with `Mapped[type]` annotations. All PKs are UUID (`uuid4`).
-- **No comments unless explicitly asked.** Do not add explanatory comments to code.
-- **No emojis** in code or commit messages unless user explicitly requests them.
-- **Docstrings:** Spanish, triple-quoted, on key functions only. Keep concise.
-- **Error handling:** Use `try/except Exception` for remote I/O (SMB, FTP, SFTP). Log errors. Do not use bare `except:`. FastAPI routes use `HTTPException` for client errors.
-- **Logging:** Some modules use `print()`, newer code should use `logging` module. Follow existing pattern in the file.
-- **Settings:** Use `SettingsResolver.get("key", default)` to read config. Never read env vars directly.
-- **Templates:** Jinja2 HTML files in `app/templates/`. Use inline CSS (no framework), Spanish labels, `POST` forms with `RedirectResponse`.
-- **Database:** No Alembic. Tables created via `Base.metadata.create_all()` at startup. SQLite for dev, PostgreSQL for production.
+## Imports, Formatting, Types
+- Order imports as: standard library, third-party, `app.*`
+- Prefer absolute imports like `from app.db.models import SourceBatch`
+- Avoid circular imports; use local imports only when necessary
+- Preserve the style already used in the file when it is consistent
+- Add type hints on function signatures and return values
+- Prefer `Optional[X]` over `X | None` for consistency
+- Pydantic schemas should use explicit field types and sensible defaults
+- Jinja templates live in `app/templates/` and use inline CSS, not a CSS framework
+- Settings and panel forms usually submit via `POST` and return `RedirectResponse`
 
-## Domain Concepts
+## Naming Conventions
+- Classes: `PascalCase`
+- Functions and variables: `snake_case`
+- Constants and enum values: `UPPER_SNAKE_CASE`
+- Settings keys stay lowercase snake_case strings
 
-- **Pipeline stages:** Ingestion -> Grouping -> Extraction -> Cleaning -> Classification -> Scoring -> Review -> Editorial Build -> Validation -> Export
-- **9 Categories:** AGENDA, NOTICIES, ESPORTS, TURISME_ACTIU, NENS_I_JOVES, CULTURA, GASTRONOMIA, CONSELLS, ENTREVISTES
-- **4 Municipalities:** BERGUEDA, CERDANYA, MARESME, GENERAL
-- **Hotfolder:** SMB (Synology) input with 3 folders (one per municipality). Each folder has a `processed/` subfolder.
-- **Outfolder:** FTP output with 3 folders (one per municipality).
-- **Settings categories:** general, telegram, inbox, outfolder, processing, publishing, ai, paths
+## Database Rules
+- Use SQLAlchemy 2 style with `Mapped[...]` and `mapped_column()`
+- Primary keys are UUIDs generated with `uuid4`
+- `BaseRepository.delete()` expects keyword-only `id=...`
+- `SystemSetting` is in `app/db/settings_models.py`, not `app/db/models.py`
+- Do not add Alembic files; startup creates the schema
 
-## Key Files When Making Changes
+## Error Handling and Logging
+- For SMB/FTP/SFTP/local I/O, use `try/except Exception` and log failures
+- Do not use bare `except:`
+- FastAPI routes should raise `HTTPException` for client-facing errors
+- Follow the logging style already present in the file
+- Prefer `logging` over `print()` in newer service code unless the file consistently uses prints
 
-- Adding a setting default: `app/services/settings/service.py` -> `initialize_defaults()`
-- Adding a settings UI page: `app/templates/settings/` + `app/api/routes/settings.py`
-- Adding a remote client: `app/services/inbox/clients/` + `app/services/remote/clients.py`
-- Adding a test endpoint: `app/api/routes/settings.py` (under `# --- Test Endpoints ---`)
-- DB models: `app/db/models.py`, `app/db/settings_models.py`, `app/db/inbox_models.py`
-- Repositories: `app/db/repositories/all_repos.py`, `app/db/repositories/settings_repos.py`
-- Pydantic schemas: `app/schemas/all_schemas.py`, `app/schemas/settings.py`
+## Settings Rules
+- Read runtime settings with `SettingsResolver.get("key", default)`
+- Call `SettingsResolver.reload(db)` before reading updated settings in endpoints
+- Do not read env vars directly for runtime behavior outside bootstrap/config code
+- When adding a new setting default, update `app/services/settings/service.py`
 
-## Testing
+## Pipeline-Specific Rules
+- Flows are independent and manually managed from the settings panel
+- `active_source_mode` controls both input and output mode
+- SMB and local folder mappings are stored separately
+- Export JSON is batch-specific; do not accumulate old articles into new exports
+- Source files should be moved to `processed/` after successful flow handling
+- FTP image exports belong under the municipality folder, usually in `images/`
+- Public image URLs are built from `outfolder_public_base_url`
 
-- Framework: `pytest` with `fastapi.testclient.TestClient`
-- Fixtures: `tmp_path` (built-in). `test_phase5.py` has an `autouse=True` fixture for DB setup.
-- Mocking: `unittest.mock.patch`, `MagicMock`
-- Test files are organized by project phase (`test_base.py`, `test_phase2.py`, etc.)
-- **No conftest.py exists.** Create one if shared fixtures are needed.
-- Tests run against SQLite in-memory or file DB. No test isolation by default.
-- Always run tests after making changes to verify nothing is broken.
+## Testing Expectations
+- Always run relevant tests after changing business logic
+- At minimum, run the most specific affected test file
+- If no targeted test exists, run a syntax check and explain what was validated
+- Tests use `pytest` and `fastapi.testclient.TestClient`
+- There is no shared `conftest.py` currently
 
-## Important Notes
+## Known Project Notes
+- `smbclient` LSP/import errors can be false positives in editors
+- Existing UploadFile typing issues in `app/api/routes/settings.py` are pre-existing noise
+- OCR/image processing may depend on optional runtime tools or external services
+- JSON files in `ejemplos_exportaciones/` are strict structure references for category exports
 
-- The virtual environment is at `venv/` (Python 3.11). Always activate before running commands.
-- `smbclient` LSP errors are false positives - the package is installed in venv but not resolved by the LSP.
-- Existing LSP type errors in `app/api/routes/settings.py` (UploadFile type issues) are pre-existing in the generic `save_settings_section` handler and are not caused by new code.
-- The project is NOT a git repository. Do not run git commands unless explicitly asked.
-- The `editorial.db` SQLite file in the project root is the development database.
-- `SettingsResolver.reload(db)` must be called before reading settings in endpoints to pick up DB changes.
+## When Editing
+- Prefer minimal, surgical changes
+- Preserve existing behavior unless the task requires a change
+- Update templates, routes, settings defaults, and services together when adding a setting
+- If a category export shape changes, verify adapters, strict export examples, and settings UI together

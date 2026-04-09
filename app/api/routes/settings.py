@@ -16,6 +16,7 @@ from app.schemas.settings import SettingItemUpdate
 from app.core.settings_enums import SettingType
 from app.services.remote.clients import FtpRemoteInboxClient, SftpRemoteInboxClient, LocalFolderInboxClient, SmbRemoteInboxClient, FtpOutfolderClient, LocalOutfolderClient
 from app.services.notifications.telegram import TelegramNotifier
+from app.services.categories.service import get_category_export_configs
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -295,6 +296,7 @@ async def save_outfolder(request: Request, db: Session = Depends(get_db)):
         "outfolder_password": SettingType.STRING,
         "outfolder_timeout": SettingType.INTEGER,
         "outfolder_passive_mode": SettingType.BOOLEAN,
+        "outfolder_public_base_url": SettingType.STRING,
     }
     for key, val_type in type_map.items():
         val = form_data.get(f"setting_{key}")
@@ -527,6 +529,44 @@ async def save_ai(request: Request, db: Session = Depends(get_db)):
 
     SettingsService.update_section(db, "ai", updates, user="admin_user")
     return RedirectResponse(url="/settings/ai?success=true", status_code=303)
+
+@router.get("/categories", response_class=HTMLResponse)
+def settings_categories(request: Request, db: Session = Depends(get_db)):
+    SettingsService.initialize_defaults(db)
+    SettingsResolver.reload(db)
+    configs = get_category_export_configs()
+    return templates.TemplateResponse(
+        request=request,
+        name="settings/categories.html",
+        context={
+            "configs": configs,
+            "configs_json": _json.dumps(configs, ensure_ascii=False),
+            "active_page": "categories",
+            "success": request.query_params.get("success")
+        }
+    )
+
+@router.post("/categories")
+async def save_categories(request: Request, db: Session = Depends(get_db)):
+    form_data = await request.form()
+    configs_json = form_data.get("category_export_configs_json", "[]")
+    try:
+        configs = _json.loads(configs_json)
+        if not isinstance(configs, list):
+            configs = []
+    except Exception:
+        configs = []
+
+    updates = [
+        SettingItemUpdate(
+            key="category_export_configs",
+            value=_json.dumps(configs, ensure_ascii=False),
+            value_type=SettingType.JSON,
+            is_secret=False
+        )
+    ]
+    SettingsService.update_section(db, "categories", updates, user="admin_user")
+    return RedirectResponse(url="/settings/categories?success=true", status_code=303)
 
 @router.get("/paths", response_class=HTMLResponse)
 def settings_paths(request: Request, db: Session = Depends(get_db)):

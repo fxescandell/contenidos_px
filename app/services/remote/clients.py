@@ -671,6 +671,8 @@ class SmbRemoteInboxClient(BaseRemoteInboxClient):
             return False, str(e), []
 
     def move_to_processed(self, source_path: str, filenames: list) -> Tuple[bool, str]:
+        from smbclient import listdir, makedirs, register_session, rename, reset_connection_cache, rmdir
+
         cfg = self._get_config()
         if not cfg["host"] or not cfg["share"]:
             return False, "SMB no configurado (falta host o share)"
@@ -679,8 +681,12 @@ class SmbRemoteInboxClient(BaseRemoteInboxClient):
         moved = 0
         failed = 0
 
-        path_suffix = source_path.strip("/").replace("/", chr(92))
-        unc_source = f"\\\\{cfg['host']}\\{cfg['share']}\\{path_suffix}" if path_suffix else f"\\\\{cfg['host']}\\{cfg['share']}"
+        source_path_str = str(source_path or "")
+        if source_path_str.startswith("\\"):
+            unc_source = source_path_str.rstrip("\\")
+        else:
+            path_suffix = source_path_str.strip("/").replace("/", chr(92))
+            unc_source = f"\\\\{cfg['host']}\\{cfg['share']}\\{path_suffix}" if path_suffix else f"\\\\{cfg['host']}\\{cfg['share']}"
         unc_processed = f"{unc_source}\\processed"
 
         try:
@@ -708,6 +714,24 @@ class SmbRemoteInboxClient(BaseRemoteInboxClient):
                 except Exception as e:
                     failed += 1
                     results.append(f"FALLO moviendo {fname}: {e}")
+
+            candidate_dirs = set()
+            for fname in filenames:
+                normalized = str(fname).replace("\\", "/")
+                parent = normalized.rsplit("/", 1)[0] if "/" in normalized else ""
+                while parent:
+                    candidate_dirs.add(parent)
+                    if "/" not in parent:
+                        break
+                    parent = parent.rsplit("/", 1)[0]
+
+            for rel_dir in sorted(candidate_dirs, key=lambda d: d.count("/"), reverse=True):
+                try:
+                    unc_dir = f"{unc_source}\\{rel_dir.replace('/', chr(92))}"
+                    if not listdir(unc_dir):
+                        rmdir(unc_dir)
+                except Exception:
+                    pass
 
             reset_connection_cache()
             if failed == 0:

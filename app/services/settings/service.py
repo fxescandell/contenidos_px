@@ -168,6 +168,7 @@ class SettingsService:
             {"key": "outfolder_password", "value": "", "type": SettingType.STRING, "cat": "outfolder", "secret": True, "desc": "Contraseña FTP de salida"},
             {"key": "outfolder_timeout", "value": "30", "type": SettingType.INTEGER, "cat": "outfolder", "desc": "Timeout FTP de salida (segundos)"},
             {"key": "outfolder_passive_mode", "value": True, "type": SettingType.BOOLEAN, "cat": "outfolder", "desc": "Modo pasivo FTP de salida"},
+            {"key": "outfolder_public_base_url", "value": "https://panxing.net/json-import-content", "type": SettingType.STRING, "cat": "outfolder", "desc": "URL publica base para JSON e imagenes"},
         ]
         outfolder_folders = [
             {"name": "Bergueda", "base_path": "/Bergueda", "enabled": True},
@@ -207,6 +208,7 @@ class SettingsService:
             {"key": "wp_default_status", "value": "draft", "type": SettingType.STRING, "cat": "publishing", "desc": "Estado inicial de los articulos publicados: draft, publish o pending"},
             {"key": "wp_default_author_id", "value": "1", "type": SettingType.INTEGER, "cat": "publishing", "desc": "ID del autor por defecto para los articulos importados"},
             {"key": "export_include_media", "value": True, "type": SettingType.BOOLEAN, "cat": "publishing", "desc": "Incluye las URLs de las imagenes/medios en el JSON exportado"},
+            {"key": "category_export_configs", "value": "[]", "type": SettingType.JSON, "cat": "categories", "desc": "Configuracion de exportacion estricta por categoria (JSON)"},
 
             # Rutas locales
             {"key": "working_folder_path", "value": "/tmp/editorial_working", "type": SettingType.STRING, "cat": "paths", "desc": "Carpeta temporal donde se descomprimen y procesan los archivos del pipeline"},

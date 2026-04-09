@@ -10,6 +10,7 @@ from app.config.settings import settings
 from app.services.pipeline.flow_service import FlowService
 from app.services.export.flow_export import FlowExporter
 from app.services.settings.service import SettingsResolver
+from app.core.settings_enums import SettingType
 from datetime import datetime
 
 router = APIRouter(prefix="/api/v1/flows", tags=["flows"])
@@ -35,7 +36,7 @@ def switch_mode(mode: str = Query(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Modo debe ser 'smb' o 'local'")
     from app.services.settings.service import SettingsService
     from app.schemas.settings import SettingItemUpdate
-    SettingsService.update_section(db, "general", [SettingItemUpdate(key="active_source_mode", value=mode, value_type="string")])
+    SettingsService.update_section(db, "general", [SettingItemUpdate(key="active_source_mode", value=mode, value_type=SettingType.STRING)])
     SettingsResolver.reload(db)
     return {"success": True, "mode": mode}
 
@@ -391,14 +392,18 @@ def export_flow(flow_id: UUID, db: Session = Depends(get_db)):
         return {"success": False, "message": f"Error en procesamiento: {result.get('message', '')}"}
 
     exporter = FlowExporter()
-    json_data = {
-        "municipality": flow.municipality,
-        "category": flow.category,
-        "generated_at": datetime.now().isoformat(),
-        "flow_name": flow.name,
-        "articles": result.get("articles", [])
-    }
-    json_content = flow_service.generate_json(flow, result.get("articles", []))
+    image_uploads = result.get("image_uploads", []) or []
+    if image_uploads:
+        images_ok, images_msg, _uploaded = exporter.upload_image_assets(flow.municipality, image_uploads)
+        if not images_ok:
+            flow_repo.update(db, db_obj=flow, obj_in={
+                "last_run_at": datetime.now(),
+                "last_run_status": "ERROR",
+                "last_run_summary": f"{result.get('message', '')} | {images_msg}"[:255]
+            })
+            return {"success": False, "message": f"Error subiendo imagenes: {images_msg}"}
+
+    json_content = flow_service.generate_json(flow, result.get("articles", []), result.get("export_payload"))
     upload_ok, upload_msg = exporter.upload_to_outfolder(flow.municipality, flow.output_filename, json_content)
 
     flow_repo.update(db, db_obj=flow, obj_in={

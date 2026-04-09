@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Configuracion - Categorias</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; display: flex; gap: 20px; }
+        .sidebar { width: 250px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: fit-content; }
+        .content { flex: 1; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .menu-list { list-style: none; padding: 0; margin: 0; }
+        .menu-list li { margin-bottom: 10px; }
+        .menu-list a { color: #0066cc; text-decoration: none; display: block; padding: 8px 12px; border-radius: 4px; }
+        .menu-list a:hover { background: #f0f7ff; }
+        .menu-list a.active { background: #0066cc; color: white; }
+        .alert { padding: 12px; border-radius: 4px; margin-bottom: 20px; background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .section-box { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .section-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 15px; font-size: 16px; }
+        .desc { font-size: 13px; color: #666; line-height: 1.6; margin: 0 0 16px 0; }
+        .category-card { border: 1px solid #d9e2ec; border-radius: 10px; padding: 18px; margin-bottom: 18px; background: #fbfdff; }
+        .category-card h4 { margin: 0 0 8px 0; font-size: 18px; color: #1f3b57; }
+        .category-meta { font-size: 12px; color: #6b7c93; margin-bottom: 14px; }
+        .form-group { margin-bottom: 14px; }
+        label { display: block; margin-bottom: 6px; font-weight: 600; color: #444; font-size: 14px; }
+        textarea { width: 100%; min-height: 180px; padding: 10px 12px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.5; resize: vertical; }
+        .instructions { min-height: 120px; }
+        .help-text { font-size: 12px; color: #666; margin-top: 4px; display: block; }
+        .btn { background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 15px; }
+        .btn:hover { background: #218838; }
+        .hint-box { background: #f5f8fb; border: 1px solid #dde7f0; border-radius: 8px; padding: 14px; margin-bottom: 20px; }
+        .hint-box strong { display: block; margin-bottom: 6px; color: #234; }
+        .code-inline { display: inline-block; background: #eef4fb; border: 1px solid #d6e4f0; border-radius: 4px; padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    <div class="container">
+        {% include 'settings/_sidebar.html' %}
+        <div class="content">
+            <h2>7. Categorias</h2>
+            {% if success %}
+            <div class="alert">Configuracion guardada correctamente.</div>
+            {% endif %}
+
+            <div class="hint-box">
+                <strong>JSON estricto por categoria</strong>
+                <div class="desc" style="margin-bottom:8px;">Define aqui la estructura exacta del JSON que debe salir en cada categoria. Si hay ejemplo configurado, el sistema intentara respetarlo sin envolverlo ni cambiarle la forma.</div>
+                <div class="desc" style="margin-bottom:0;">Puedes usar placeholders opcionales como <span class="code-inline">{{title}}</span>, <span class="code-inline">{{summary}}</span>, <span class="code-inline">{{body_html}}</span>, <span class="code-inline">{{municipality}}</span>, <span class="code-inline">{{category}}</span>, <span class="code-inline">{{event_date}}</span> o <span class="code-inline">{{search_dates}}</span>.</div>
+            </div>
+
+            <form method="POST" action="/settings/categories" onsubmit="syncCategoryConfigs()">
+                <input type="hidden" id="category_export_configs_json" name="category_export_configs_json" value="{{ configs_json|e }}">
+
+                {% for item in configs %}
+                <div class="category-card" data-category="{{ item.category }}">
+                    <h4>{{ item.label }}</h4>
+                    <div class="category-meta">Categoria interna: {{ item.category }}</div>
+
+                    <div class="form-group">
+                        <label>Ejemplo exacto del JSON</label>
+                        <textarea class="json-example" spellcheck="false">{{ item.json_example or '' }}</textarea>
+                        <span class="help-text">Si lo rellenas, el export intentara usar exactamente esta estructura como raiz del fichero JSON final.</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Indicaciones para el modelo</label>
+                        <textarea class="instructions" spellcheck="false">{{ item.instructions or '' }}</textarea>
+                        <span class="help-text">Aqui puedes afinar reglas de extraccion, tono, obligatoriedad de campos o como interpretar este tipo de contenido.</span>
+                    </div>
+                </div>
+                {% endfor %}
+
+                <button type="submit" class="btn">Guardar Configuracion</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function syncCategoryConfigs() {
+            const items = [];
+            document.querySelectorAll('.category-card').forEach(card => {
+                items.push({
+                    category: card.dataset.category,
+                    json_example: card.querySelector('.json-example').value,
+                    instructions: card.querySelector('.instructions').value
+                });
+            });
+            document.getElementById('category_export_configs_json').value = JSON.stringify(items);
+        }
+    </script>
+</body>
+</html>

@@ -22,18 +22,19 @@
         <li><a href="/settings/processing" {% if active_page == 'processing' %}class="active"{% endif %}>4. Procesamiento</a></li>
         <li><a href="/settings/publishing" {% if active_page == 'publishing' %}class="active"{% endif %}>5. Publicacion</a></li>
         <li><a href="/settings/ai" {% if active_page == 'ai' %}class="active"{% endif %}>6. OCR e IA</a></li>
+        <li><a href="/settings/categories" {% if active_page == 'categories' %}class="active"{% endif %}>7. Categorias</a></li>
     </ul>
 
     <div style="font-size:10px; color:#999; text-transform:uppercase; letter-spacing:1px; margin:8px 0 4px 0; padding-left:8px;">Entrada / Salida</div>
     <ul class="menu-list">
-        <li><a href="/settings/inbox" {% if active_page == 'inbox' %}class="active"{% endif %}><span id="inbox-label">7. Entrada (SMB)</span></a></li>
-        <li><a href="/settings/outfolder" {% if active_page == 'outfolder' %}class="active"{% endif %}><span id="outfolder-label">8. Salida (FTP)</span></a></li>
+        <li><a href="/settings/inbox" {% if active_page == 'inbox' %}class="active"{% endif %}><span id="inbox-label">8. Entrada (SMB)</span></a></li>
+        <li><a href="/settings/outfolder" {% if active_page == 'outfolder' %}class="active"{% endif %}><span id="outfolder-label">9. Salida (FTP)</span></a></li>
     </ul>
 
     <div style="font-size:10px; color:#999; text-transform:uppercase; letter-spacing:1px; margin:8px 0 4px 0; padding-left:8px;">Sistema</div>
     <ul class="menu-list">
-        <li><a href="/settings/paths" {% if active_page == 'paths' %}class="active"{% endif %}>9. Rutas de trabajo</a></li>
-        <li><a href="/settings/tools" {% if active_page == 'tools' %}class="active"{% endif %}>10. Herramientas Test</a></li>
+        <li><a href="/settings/paths" {% if active_page == 'paths' %}class="active"{% endif %}>10. Rutas de trabajo</a></li>
+        <li><a href="/settings/tools" {% if active_page == 'tools' %}class="active"{% endif %}>11. Herramientas Test</a></li>
     </ul>
 </div>
 
@@ -59,14 +60,14 @@ function switchMode(mode) {
             btnSmb.classList.remove('active');
             btnLocal.classList.add('active');
             label.textContent = 'Local';
-            inboxLabel.textContent = '7. Entrada (Local)';
-            outfolderLabel.textContent = '8. Salida (Local)';
+            inboxLabel.textContent = '8. Entrada (Local)';
+            outfolderLabel.textContent = '9. Salida (Local)';
         } else {
             btnLocal.classList.remove('active');
             btnSmb.classList.add('active');
             label.textContent = 'SMB / FTP';
-            inboxLabel.textContent = '7. Entrada (SMB)';
-            outfolderLabel.textContent = '8. Salida (FTP)';
+            inboxLabel.textContent = '8. Entrada (SMB)';
+            outfolderLabel.textContent = '9. Salida (FTP)';
         }
     }).catch(() => {});
 })();

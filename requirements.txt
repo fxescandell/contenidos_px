@@ -8,3 +8,10 @@ smbprotocol
 psutil
 pytest
 alembic
+httpx
+Pillow
+pymupdf
+python-docx
+pytesseract
+paddlepaddle
+paddleocr

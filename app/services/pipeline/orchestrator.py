@@ -84,7 +84,7 @@ class PipelineOrchestrator:
                 # Assign files
                 assigned_files = [f for f in files if f.id in [a["id"] for a in group.assigned_files]]
                 docs = [f for f in assigned_files if f.extension in [".pdf", ".docx"]]
-                imgs = [f for f in assigned_files if f.extension in [".jpg", ".png"]]
+                imgs = [f for f in assigned_files if f.extension in [".jpg", ".jpeg", ".png"]]
                 
                 # 4. Extraction
                 extractions = self.extraction_orchestrator.process_files(

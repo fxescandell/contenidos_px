@@ -128,10 +128,14 @@ class ExtractionResult(BaseModel):
 
 class ImageProcessingResult(BaseModel):
     source_file_id: UUID
-    optimized_path: str
-    width: int
-    height: int
-    role: str
+    optimized_path: Optional[str] = None
+    thumbnail_path: Optional[str] = None
+    width: int = 0
+    height: int = 0
+    original_format: Optional[str] = None
+    optimized_format: Optional[str] = None
+    optimized_file_size_bytes: Optional[int] = None
+    role: str = "INLINE"
 
 class EditorialBuildResult(BaseModel):
     source_title: Optional[str] = None
@@ -152,6 +156,7 @@ class AdapterBuildResult(BaseModel):
     canonical_id: UUID
     adapter_name: str
     payload: WordPressExportPayload
+    raw_payload: Optional[Any] = None
     is_ready_for_export: bool
     validation_issues: List[ValidationIssue] = Field(default_factory=list)
 

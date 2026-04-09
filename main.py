@@ -1,12 +1,13 @@
 import asyncio
-import threading
 import contextlib
+import os
+import threading
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.config.settings import settings
 from app.db.base import Base
-from app.db.session import engine
+from app.db.session import SessionLocal, engine
 from app.api.routes.api_v1 import router as api_router
 from app.api.routes.panel import router as panel_router
 from app.api.routes.settings import router as settings_router
@@ -14,9 +15,14 @@ from app.api.routes.inbox import router as inbox_router
 from app.api.routes.flows import router as flows_router
 from app.services.watcher.service import WatcherService
 from app.services.pipeline.orchestrator import PipelineOrchestrator
+from app.services.settings.service import SettingsResolver, SettingsService
 
 # Initialize DB tables
 Base.metadata.create_all(bind=engine)
+
+
+def _is_env_flag_enabled(name: str, default: str = "true") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in ("1", "true", "yes", "on")
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,21 +41,35 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"Error in background watcher processing: {e}")
             
-    watcher = WatcherService(
-        hot_folder_path=settings.SYNOLOGY_HOT_FOLDER,
-        callback=on_new_content
-    )
-    
-    # Iniciar watcher en un hilo separado
-    watcher_thread = threading.Thread(target=watcher.start, daemon=True)
-    watcher_thread.start()
-    print(f"Watcher started on {settings.SYNOLOGY_HOT_FOLDER}")
+    watcher = None
+    watcher_enabled = _is_env_flag_enabled("START_WATCHER", "true")
+
+    try:
+        with SessionLocal() as db:
+            SettingsService.initialize_defaults(db)
+            SettingsResolver.reload(db)
+            watcher_enabled = watcher_enabled and bool(SettingsResolver.get("enable_watcher", True))
+    except Exception as e:
+        print(f"No se pudo leer la configuracion inicial del watcher: {e}")
+
+    if watcher_enabled:
+        watcher = WatcherService(
+            hot_folder_path=settings.SYNOLOGY_HOT_FOLDER,
+            callback=on_new_content
+        )
+
+        watcher_thread = threading.Thread(target=watcher.start, daemon=True)
+        watcher_thread.start()
+        print(f"Watcher started on {settings.SYNOLOGY_HOT_FOLDER}")
+    else:
+        print("Watcher desactivado por configuracion")
     
     yield
     
     # Detener watcher al apagar
-    watcher.stop()
-    print("Watcher stopped")
+    if watcher is not None:
+        watcher.stop()
+        print("Watcher stopped")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

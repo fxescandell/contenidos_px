@@ -16,6 +16,9 @@ class BaseWordPressAdapter(ABC):
 
     def build_payload(self, canonical_content: CanonicalContent) -> AdapterBuildResult:
         validation_result = self.validate(canonical_content)
+        raw_payload = None
+        if canonical_content.structured_fields_json:
+            raw_payload = canonical_content.structured_fields_json.get("_strict_export_payload")
         
         payload = WordPressExportPayload(
             post_title=canonical_content.final_title or "Untitled",
@@ -32,6 +35,7 @@ class BaseWordPressAdapter(ABC):
             canonical_id=canonical_content.id,
             adapter_name=self.__class__.__name__,
             payload=payload,
+            raw_payload=raw_payload,
             is_ready_for_export=validation_result.is_valid,
             validation_issues=validation_result.issues
         )
@@ -46,6 +50,10 @@ class BaseWordPressAdapter(ABC):
         return {}
 
     def map_featured_image(self, canonical_content: CanonicalContent) -> str | None:
+        if canonical_content.structured_fields_json:
+            featured = canonical_content.structured_fields_json.get("_featured_image_path")
+            if featured:
+                return str(featured)
         if canonical_content.candidate and canonical_content.candidate.featured_source_file_id:
             return str(canonical_content.candidate.featured_source_file_id)
         return None

@@ -113,6 +113,11 @@
                             </label>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label>URL publica base</label>
+                        <input type="text" name="setting_outfolder_public_base_url" value="{{ values.outfolder_public_base_url or 'https://panxing.net/json-import-content' }}" placeholder="https://panxing.net/json-import-content">
+                        <span class="help-text">Se utiliza para construir las URLs publicas de las imagenes exportadas. El sistema anadira automaticamente el municipio y la carpeta <strong>images</strong>.</span>
+                    </div>
                     <div class="btn-group">
                         <button type="button" class="btn btn-teal" onclick="testOutfolderFtp()">Probar Conexion FTP</button>
                     </div>

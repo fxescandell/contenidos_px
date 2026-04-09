@@ -3,58 +3,393 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel Editorial</title>
+    <title>Panel Editorial - Panxing</title>
     <style>
+        * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
-        .container { max-width: 1000px; margin: 0 auto; }
-        .header { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #eee; }
-        th { background: #f8f9fa; font-weight: 600; }
-        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }
-        .status-REVIEW_REQUIRED { background: #ffeeba; color: #856404; }
-        .status-FINISHED { background: #d4edda; color: #155724; }
+        .container { max-width: 1100px; margin: 0 auto; }
+
+        /* Header */
+        .header { background: #fff; padding: 20px 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { margin: 0; font-size: 22px; color: #2c3e50; }
+        .header .subtitle { margin: 4px 0 0; font-size: 13px; color: #888; }
+        .header-actions { display: flex; align-items: center; gap: 10px; }
+        .mode-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .mode-badge.smb { background: #dbeafe; color: #1e40af; }
+        .mode-badge.local { background: #dcfce7; color: #166534; }
+        .btn { background: #0066cc; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; text-decoration: none; display: inline-block; }
+        .btn:hover { background: #0052a3; text-decoration: none; color: white; }
+        .btn-settings { background: #6c757d; }
+        .btn-settings:hover { background: #5a6268; }
+        .btn-delete { background: none; border: none; color: #dc3545; cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 4px; opacity: 0.5; }
+        .btn-delete:hover { opacity: 1; background: #fff5f5; }
+        .btn-delete.confirming { opacity: 1; background: #dc3545; color: white; font-size: 11px; padding: 2px 8px; }
+
+        /* Auto-refresh indicator */
+        .auto-refresh { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; }
+        .auto-refresh .dot { width: 8px; height: 8px; border-radius: 50%; background: #28a745; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* Stats cards */
+        .stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: #fff; padding: 16px 18px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #ccc; }
+        .stat-card .stat-number { font-size: 28px; font-weight: 700; color: #2c3e50; line-height: 1; }
+        .stat-card .stat-label { font-size: 12px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-card.total { border-left-color: #0066cc; }
+        .stat-card.active { border-left-color: #f59e0b; }
+        .stat-card.active .stat-number { color: #f59e0b; }
+        .stat-card.finished { border-left-color: #28a745; }
+        .stat-card.finished .stat-number { color: #28a745; }
+        .stat-card.failed { border-left-color: #dc3545; }
+        .stat-card.failed .stat-number { color: #dc3545; }
+        .stat-card.review { border-left-color: #856404; }
+        .stat-card.review .stat-number { color: #856404; }
+
+        /* Filters */
+        .filters-bar { background: #fff; padding: 12px 18px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .filter-tabs { display: flex; gap: 4px; }
+        .filter-tab { padding: 6px 14px; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid #ddd; background: #fff; color: #666; }
+        .filter-tab:hover { background: #f0f0f0; }
+        .filter-tab.active { background: #0066cc; color: #fff; border-color: #0066cc; }
+        .filter-tab .count { font-size: 11px; font-weight: 400; opacity: 0.8; margin-left: 4px; }
+        .filter-select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; background: #fff; }
+        .search-input { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; width: 200px; }
+        .search-input::placeholder { color: #aaa; }
+        .spacer { flex: 1; }
+
+        /* Table */
+        .table-wrapper { background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; }
+        tr:hover { background: #f8fafc; }
+        tr:last-child td { border-bottom: none; }
+
+        /* Status badges */
+        .status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+        .status-DETECTED { background: #e8f4fd; color: #0369a1; }
+        .status-COPYING, .status-COPIED, .status-SCANNED, .status-GROUPED { background: #fef3c7; color: #92400e; }
+        .status-PROCESSING { background: #fef3c7; color: #92400e; animation: pulse 1.5s infinite; }
+        .status-FINISHED { background: #dcfce7; color: #166534; }
         .status-FAILED { background: #f8d7da; color: #721c24; }
-        a { color: #0066cc; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        .status-REVIEW_REQUIRED { background: #fff3cd; color: #856404; }
+
+        /* Municipality colors */
+        .muni-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .muni-BERGUEDA { background: #dbeafe; color: #1e40af; }
+        .muni-CERDANYA { background: #ffedd5; color: #9a3412; }
+        .muni-MARESME { background: #dcfce7; color: #166534; }
+        .muni-GENERAL { background: #f3e8ff; color: #6b21a8; }
+
+        /* Other */
+        .count-badge { display: inline-block; background: #f0f0f0; padding: 1px 6px; border-radius: 8px; font-size: 11px; color: #666; margin-left: 4px; }
+        .error-text { font-size: 11px; color: #dc3545; margin-top: 2px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .time-ago { font-size: 11px; color: #888; }
+        a.action-link { color: #0066cc; text-decoration: none; font-size: 13px; font-weight: 600; }
+        a.action-link:hover { text-decoration: underline; }
+        .empty-state { text-align: center; padding: 40px 20px; color: #aaa; }
+        .empty-state .icon { font-size: 32px; margin-bottom: 8px; }
+        .empty-state p { font-size: 14px; }
+        .progress-bar { display: flex; gap: 2px; height: 4px; width: 80px; }
+        .progress-bar .step { flex: 1; border-radius: 2px; background: #e0e0e0; }
+        .progress-bar .step.done { background: #28a745; }
+        .progress-bar .step.current { background: #f59e0b; }
+        .progress-bar .step.error { background: #dc3545; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header" style="display: flex; justify-content: space-between; align-items: center;">
+        <!-- Header -->
+        <div class="header">
             <div>
-                <h1>Lotes Recientes</h1>
-                <p>Control de procesos y revisión manual.</p>
+                <h1>Panxing Contenidos</h1>
+                <div class="subtitle">Pipeline editorial - Control de lotes y procesos</div>
             </div>
-            <div>
-                <a href="/settings" style="background: #0066cc; color: white; padding: 10px 15px; border-radius: 4px; text-decoration: none; font-weight: bold;">⚙️ Configuración</a>
+            <div class="header-actions">
+                <span class="mode-badge {% if active_mode == 'smb' %}smb{% else %}local{% endif %}">
+                    {% if active_mode == 'smb' %}SMB/FTP{% else %}Local{% endif %}
+                </span>
+                <div id="auto-refresh-indicator" class="auto-refresh" style="display:none;">
+                    <span class="dot"></span>
+                    <span id="refresh-timer">5s</span>
+                </div>
+                <a href="/settings" class="btn btn-settings">Configuracion</a>
             </div>
         </div>
 
-        <table>
-            <thead>
-                <tr>
-                    <th>Nombre</th>
-                    <th>Municipio / Cat</th>
-                    <th>Estado</th>
-                    <th>Fecha</th>
-                    <th>Acción</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for batch in batches %}
-                <tr>
-                    <td><strong>{{ batch.external_name }}</strong></td>
-                    <td>{{ batch.municipality_hint or 'Auto' }} / {{ batch.category_hint or 'Auto' }}</td>
-                    <td><span class="status-badge status-{{ batch.status.value }}">{{ batch.status.value }}</span></td>
-                    <td>{{ batch.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                    <td><a href="/batch/{{ batch.id }}">Ver Detalle &rarr;</a></td>
-                </tr>
-                {% else %}
-                <tr><td colspan="5">No hay lotes procesados todavía.</td></tr>
+        <!-- Stats -->
+        <div class="stats-row">
+            <div class="stat-card total">
+                <div class="stat-number">{{ stats.total }}</div>
+                <div class="stat-label">Total Lotes</div>
+            </div>
+            <div class="stat-card active">
+                <div class="stat-number">{{ stats.active }}</div>
+                <div class="stat-label">En Proceso</div>
+            </div>
+            <div class="stat-card finished">
+                <div class="stat-number">{{ stats.finished }}</div>
+                <div class="stat-label">Finalizados</div>
+            </div>
+            <div class="stat-card failed">
+                <div class="stat-number">{{ stats.failed }}</div>
+                <div class="stat-label">Con Errores</div>
+            </div>
+            <div class="stat-card review">
+                <div class="stat-number">{{ stats.review }}</div>
+                <div class="stat-label">Pendientes Revision</div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters-bar">
+            <div class="filter-tabs">
+                <button class="filter-tab active" data-filter="all" onclick="setFilter('all', this)">Todos <span class="count">{{ stats.total }}</span></button>
+                <button class="filter-tab" data-filter="active" onclick="setFilter('active', this)">Activos <span class="count">{{ stats.active }}</span></button>
+                <button class="filter-tab" data-filter="finished" onclick="setFilter('finished', this)">Finalizados <span class="count">{{ stats.finished }}</span></button>
+                <button class="filter-tab" data-filter="failed" onclick="setFilter('failed', this)">Errores <span class="count">{{ stats.failed }}</span></button>
+                <button class="filter-tab" data-filter="review" onclick="setFilter('review', this)">Revision <span class="count">{{ stats.review }}</span></button>
+            </div>
+            <select class="filter-select" id="filter-municipality" onchange="applyFilters()">
+                <option value="">Todos los municipios</option>
+                {% for m in municipalities %}
+                <option value="{{ m }}">{{ m }}</option>
                 {% endfor %}
-            </tbody>
-        </table>
+            </select>
+            <input type="text" class="search-input" id="search-input" placeholder="Buscar por nombre..." oninput="applyFilters()">
+            <div class="spacer"></div>
+            <span style="font-size:12px; color:#aaa;" id="showing-count"></span>
+        </div>
+
+        <!-- Table -->
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Municipio</th>
+                        <th>Estado</th>
+                        <th>Archivos / Candidatos</th>
+                        <th>Hace</th>
+                        <th></th>
+                </thead>
+                <tbody id="batches-tbody">
+                </tbody>
+            </table>
+            <div id="empty-state" class="empty-state" style="display:none;">
+                <div class="icon">&#128203;</div>
+                <p>No hay lotes que coincidan con los filtros.</p>
+            </div>
+        </div>
     </div>
+
+    <script>
+        const BATCHES = {{ batches | tojson }};
+        const STATUSES_ACTIVE = ['DETECTED', 'COPYING', 'COPIED', 'SCANNED', 'GROUPED', 'PROCESSING'];
+        const STATUSES_FINISHED = ['FINISHED'];
+        const STATUSES_FAILED = ['FAILED'];
+        const STATUSES_REVIEW = ['REVIEW_REQUIRED'];
+        const STATUS_ORDER = ['DETECTED', 'COPYING', 'COPIED', 'SCANNED', 'GROUPED', 'PROCESSING', 'FINISHED', 'REVIEW_REQUIRED', 'FAILED'];
+
+        const MUNI_LABELS = {
+            'BERGUEDA': 'Bergueda',
+            'CERDANYA': 'Cerdanya',
+            'MARESME': 'Maresme',
+            'GENERAL': 'General'
+        };
+
+        let currentFilter = 'all';
+
+        function getMuniClass(m) { return 'muni-' + (m || 'GENERAL'); }
+        function getMuniLabel(m) { return MUNI_LABELS[m] || m || '?'; }
+
+        function timeAgo(dateStr) {
+            if (!dateStr) return '-';
+            const now = new Date();
+            const d = new Date(dateStr);
+            const diffMs = now - d;
+            const diffS = Math.floor(diffMs / 1000);
+            if (diffS < 60) return 'ahora';
+            const diffM = Math.floor(diffS / 60);
+            if (diffM < 60) return diffM + ' min';
+            const diffH = Math.floor(diffM / 60);
+            if (diffH < 24) return diffH + 'h ' + (diffM % 60) + 'm';
+            const diffD = Math.floor(diffH / 24);
+            if (diffD < 30) return diffD + 'd ' + (diffH % 24) + 'h';
+            return d.toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit', year:'2-digit'});
+        }
+
+        function progressBar(status) {
+            const idx = STATUS_ORDER.indexOf(status);
+            if (idx < 0) return '';
+            let html = '<div class="progress-bar" title="' + status + '">';
+            STATUS_ORDER.forEach((s, i) => {
+                let cls = '';
+                if (i < idx) cls = 'done';
+                else if (i === idx) {
+                    cls = s === 'FAILED' ? 'error' : 'current';
+                }
+                html += '<div class="step ' + cls + '"></div>';
+            });
+            html += '</div>';
+            return html;
+        }
+
+        function matchFilter(b) {
+            if (currentFilter === 'active' && !STATUSES_ACTIVE.includes(b.status)) return false;
+            if (currentFilter === 'finished' && !STATUSES_FINISHED.includes(b.status)) return false;
+            if (currentFilter === 'failed' && !STATUSES_FAILED.includes(b.status)) return false;
+            if (currentFilter === 'review' && !STATUSES_REVIEW.includes(b.status)) return false;
+            const muni = document.getElementById('filter-municipality').value;
+            if (muni && b.municipality !== muni) return false;
+            const q = document.getElementById('search-input').value.toLowerCase();
+            if (q && !(b.external_name || '').toLowerCase().includes(q)) return false;
+            return true;
+        }
+
+        function renderBatches() {
+            const filtered = BATCHES.filter(matchFilter);
+            const tbody = document.getElementById('batches-tbody');
+            const empty = document.getElementById('empty-state');
+            document.getElementById('showing-count').textContent = filtered.length + ' de ' + BATCHES.length;
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+
+            tbody.innerHTML = filtered.map(b => {
+                const statusTitle = b.error_message || b.review_reason || b.status;
+                return `<tr>
+                    <td>
+                        <div style="font-weight:600;">${escapeHtml(b.external_name || 'Sin nombre')}</div>
+                        ${b.error_message ? '<div class="error-text" title="' + escapeHtml(b.error_message) + '">' + escapeHtml(b.error_message) + '</div>' : ''}
+                        ${b.review_reason ? '<div class="error-text" style="color:#856404;" title="' + escapeHtml(b.review_reason) + '">' + escapeHtml(b.review_reason) + '</div>' : ''}
+                    </td>
+                    <td>
+                        <span class="muni-badge ${getMuniClass(b.municipality)}">${getMuniLabel(b.municipality)}</span>
+                        <div style="font-size:11px;color:#888;margin-top:2px;">${escapeHtml(b.category || '')}</div>
+                    </td>
+                    <td>
+                        <span class="status-badge status-${b.status}" title="${escapeHtml(statusTitle)}">${b.status}</span>
+                        <div style="margin-top:4px;">${progressBar(b.status)}</div>
+                    </td>
+                    <td>
+                        <span class="count-badge">${b.n_files} fich.</span>
+                        <span class="count-badge">${b.n_candidates} cand.</span>
+                    </td>
+                    <td><span class="time-ago">${timeAgo(b.created_at)}</span></td>
+                    <td style="white-space:nowrap;">
+                        <a href="/batch/${b.id}" class="action-link">Ver &rarr;</a>
+                        <button class="btn-delete" id="del-${b.id}" title="Eliminar lote" onclick="confirmDelete(this, '${b.id}', '${escapeHtml(b.external_name || 'Sin nombre')}')">&#10005;</button>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function escapeHtml(s) {
+            if (!s) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function setFilter(filter, el) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+            if (el) el.classList.add('active');
+            applyFilters();
+        }
+
+        let deleteTimers = {};
+
+        function confirmDelete(btn, id, name) {
+            if (deleteTimers[id]) {
+                clearTimeout(deleteTimers[id]);
+                delete deleteTimers[id];
+                deleteBatch(id, name);
+                return;
+            }
+            btn.classList.add('confirming');
+            btn.innerHTML = 'Confirmar';
+            btn.title = 'Pulsa de nuevo para confirmar el borrado';
+            deleteTimers[id] = setTimeout(() => {
+                btn.classList.remove('confirming');
+                btn.innerHTML = '&#10005;';
+                btn.title = 'Eliminar lote';
+                delete deleteTimers[id];
+            }, 3000);
+        }
+
+        async function deleteBatch(id, name) {
+            try {
+                const res = await fetch('/api/batches/' + id, { method: 'DELETE' });
+                if (res.ok) {
+                    const idx = BATCHES.findIndex(b => b.id === id);
+                    if (idx >= 0) BATCHES.splice(idx, 1);
+                    renderBatches();
+                    const statsRes = await fetch('/api/batches');
+                    if (statsRes.ok) updateStats(await statsRes.json().then(d => d.stats));
+                } else {
+                    const data = await res.json();
+                    alert('Error: ' + (data.message || 'No se pudo eliminar'));
+                }
+            } catch(e) {
+                alert('Error de conexion');
+            }
+        }
+
+        function applyFilters() { renderBatches(); }
+
+        // Auto-refresh
+        let refreshInterval = null;
+        let refreshCountdown = 5;
+
+        function startAutoRefresh() {
+            const indicator = document.getElementById('auto-refresh-indicator');
+            indicator.style.display = 'flex';
+            refreshCountdown = 5;
+            document.getElementById('refresh-timer').textContent = refreshCountdown + 's';
+            if (refreshInterval) clearInterval(refreshInterval);
+            refreshInterval = setInterval(async () => {
+                refreshCountdown--;
+                document.getElementById('refresh-timer').textContent = refreshCountdown + 's';
+                if (refreshCountdown <= 0) {
+                    refreshCountdown = 5;
+                    try {
+                        const res = await fetch('/api/batches');
+                        if (res.ok) {
+                            const data = await res.json();
+                            data.batches.forEach((nb, i) => { BATCHES[i] = nb; });
+                            updateStats(data.stats);
+                            renderBatches();
+                            if (!data.has_active) {
+                                stopAutoRefresh();
+                            }
+                        }
+                    } catch(e) {}
+                }
+            }, 1000);
+        }
+
+        function stopAutoRefresh() {
+            if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+            document.getElementById('auto-refresh-indicator').style.display = 'none';
+        }
+
+        function updateStats(stats) {
+            document.querySelectorAll('.stat-card')[0].querySelector('.stat-number').textContent = stats.total;
+            document.querySelectorAll('.stat-card')[1].querySelector('.stat-number').textContent = stats.active;
+            document.querySelectorAll('.stat-card')[2].querySelector('.stat-number').textContent = stats.finished;
+            document.querySelectorAll('.stat-card')[3].querySelector('.stat-number').textContent = stats.failed;
+            document.querySelectorAll('.stat-card')[4].querySelector('.stat-number').textContent = stats.review;
+        }
+
+        renderBatches();
+
+        {% if has_active %}
+        startAutoRefresh();
+        {% endif %}
+    </script>
 </body>
 </html>

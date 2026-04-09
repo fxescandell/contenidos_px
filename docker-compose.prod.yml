@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: panxing-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-editorial_db}
+      POSTGRES_USER: ${POSTGRES_USER:-editorial}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-editorial_change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-editorial} -d ${POSTGRES_DB:-editorial_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: panxing-contenidos
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.production
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME:-Panxing Contenidos}
+      API_V1_STR: ${API_V1_STR:-/api/v1}
+      SYNOLOGY_HOT_FOLDER: ${SYNOLOGY_HOT_FOLDER:-/data/hot_folder}
+      WORKING_DIRECTORY: ${WORKING_DIRECTORY:-/data/working_dir}
+      EXPORT_DIRECTORY: ${EXPORT_DIRECTORY:-/data/export_dir}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://editorial:editorial_change_me@postgres:5432/editorial_db}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ENABLE_AUTO_PUBLISH: ${ENABLE_AUTO_PUBLISH:-False}
+      START_WATCHER: ${START_WATCHER:-False}
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/flows/active-mode"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:

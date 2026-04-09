@@ -1,0 +1,37 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: panxing-contenidos
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME:-Panxing Contenidos}
+      API_V1_STR: ${API_V1_STR:-/api/v1}
+      SYNOLOGY_HOT_FOLDER: ${SYNOLOGY_HOT_FOLDER:-/data/hot_folder}
+      WORKING_DIRECTORY: ${WORKING_DIRECTORY:-/data/working_dir}
+      EXPORT_DIRECTORY: ${EXPORT_DIRECTORY:-/data/export_dir}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/editorial.db}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ENABLE_AUTO_PUBLISH: ${ENABLE_AUTO_PUBLISH:-False}
+      START_WATCHER: ${START_WATCHER:-True}
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/flows/active-mode"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+    # Si usas modo local y quieres leer/escribir carpetas del host fuera de /data,
+    # anade aqui bind mounts adicionales, por ejemplo:
+    # volumes:
+    #   - ./data:/data
+    #   - /ruta/real/hot_folder:/mnt/hot_folder
+    #   - /ruta/real/out_folder:/mnt/out_folder

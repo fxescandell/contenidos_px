@@ -17,7 +17,7 @@ from app.services.export.builder import WordPressJsonExportBuilder
 from app.adapters.factory import AdapterFactory
 from app.services.pipeline.events import event_logger
 from app.services.settings.service import SettingsResolver
-from app.core.enums import EventLevel
+from app.core.enums import EventLevel, CandidateGroupingStrategy
 from app.core.states import BatchStatus, CandidateStatus
 from app.db.repositories.all_repos import (
     source_batch_repo, source_file_repo, content_candidate_repo,
@@ -42,7 +42,7 @@ class FlowService:
 
     def resolve_source_info(self, flow: Flow) -> Dict[str, Any]:
         source_mode = SettingsResolver.get("active_source_mode", "smb") or "smb"
-        info = {"mode": source_mode, "local_temp_dir": None, "smb_source_unc": None, "resolved_path": None}
+        info = {"mode": source_mode, "local_temp_dir": None, "smb_source_unc": None, "resolved_path": None, "relative_source_path": None}
 
         if source_mode == "smb":
             from app.services.remote.clients import SmbRemoteInboxClient
@@ -65,6 +65,7 @@ class FlowService:
 
             info["resolved_path"] = full_remote_path
             info["smb_source_unc"] = unc_base
+            info["relative_source_path"] = path_suffix
             info["smb_config"] = cfg
         else:
             local_base = SettingsResolver.get("hot_folder_local_path")
@@ -248,7 +249,7 @@ class FlowService:
             source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.PROCESSING})
 
             docs = [f for f in source_files if f.extension in [".pdf", ".docx"]]
-            imgs = [f for f in source_files if f.extension in [".jpg", ".png"]]
+            imgs = [f for f in source_files if f.extension in [".jpg", ".jpeg", ".png"]]
 
             if not docs and not imgs:
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FAILED, "error_message": "No hay documentos ni imagenes procesables"})
@@ -266,17 +267,28 @@ class FlowService:
             from app.schemas.all_schemas import GroupingResult
             fake_grouping = GroupingResult(
                 candidate_key=f"{flow.municipality}_{flow.category}",
-                strategy="DIRECTORY_BASED",
+                strategy=CandidateGroupingStrategy.DIRECTORY_BASED,
                 confidence=1.0,
-                assigned_files=[{"id": f.id, "name": f.file_name} for f in source_files],
-                reasoning=f"Basado en estructura de carpetas: {source_info['resolved_path']}"
+                assigned_files=[{"id": f.id, "name": f.file_name} for f in source_files]
             )
 
             classification = self.classification_orchestrator.classify_candidate(fake_grouping, extractions, hints)
             processed_images = self.image_processor.process_images(None, imgs)
 
+            from app.services.export.flow_export import FlowExporter
+            exporter = FlowExporter()
+            image_uploads = exporter.plan_image_uploads(flow.municipality, processed_images)
+            public_image_map = {item.get("source_file_id", ""): item for item in image_uploads}
+            editorial_images = []
+            for image in processed_images:
+                mapped = public_image_map.get(str(image.source_file_id), {})
+                editorial_images.append(image.model_copy(update={
+                    "optimized_path": mapped.get("optimized_public_url") or image.optimized_path,
+                    "thumbnail_path": mapped.get("thumbnail_public_url") or image.thumbnail_path,
+                }))
+
             combined_text = "\n".join([e.cleaned_text for e in extractions])
-            editorial = self.editorial_builder.build_editorial_content(classification, combined_text, processed_images, {})
+            editorial = self.editorial_builder.build_editorial_content(classification, combined_text, editorial_images, {})
 
             candidate = content_candidate_repo.create(db, obj_in={
                 "batch_id": batch.id,
@@ -317,7 +329,7 @@ class FlowService:
                 "title": editorial.final_title,
                 "summary": editorial.final_summary,
                 "body_html": editorial.final_body_html,
-                "images": [],
+                "images": [item.get("optimized_public_url") for item in image_uploads if item.get("optimized_public_url")],
                 "municipality": classification.municipality,
                 "category": classification.category,
                 "structured_fields": editorial.structured_fields,
@@ -336,6 +348,8 @@ class FlowService:
                     "review_required": classification.requires_review,
                     "reasons": classification.review_reasons
                 },
+                "export_payload": adapter_result.raw_payload,
+                "image_uploads": image_uploads,
                 "files_count": len(source_files),
                 "batch_id": str(batch.id)
             }
@@ -352,24 +366,31 @@ class FlowService:
                 shutil.rmtree(local_temp_dir, ignore_errors=True)
             db.close()
 
-    def generate_json(self, flow: Flow, articles: List[Dict[str, Any]]) -> str:
-        data = {
-            "municipality": flow.municipality,
-            "category": flow.category,
-            "generated_at": datetime.now().isoformat(),
-            "flow_name": flow.name,
-            "articles": articles
-        }
+    def generate_json(self, flow: Flow, articles: List[Dict[str, Any]], export_payload: Optional[Any] = None) -> str:
+        if export_payload is not None:
+            data = export_payload
+        else:
+            data = {
+                "municipality": flow.municipality,
+                "category": flow.category,
+                "generated_at": datetime.now().isoformat(),
+                "flow_name": flow.name,
+                "articles": articles
+            }
         return json.dumps(data, ensure_ascii=False, indent=2)
 
     def _move_processed_files(self, source_info: Dict[str, Any], filenames: List[str]) -> None:
-        if source_info["mode"] != "smb" or not source_info.get("smb_source_unc"):
-            return
         try:
-            from app.services.remote.clients import SmbRemoteInboxClient
-            client = SmbRemoteInboxClient()
-            ok, msg = client.move_to_processed(source_info["smb_source_unc"], filenames)
+            from app.services.export.flow_export import FlowExporter
+            exporter = FlowExporter()
+            source_path = source_info.get("resolved_path", "")
+            if source_info["mode"] == "smb" and source_info.get("smb_source_unc"):
+                ok, msg = exporter._move_smb_processed(source_info["smb_source_unc"], filenames)
+            elif source_info["mode"] == "local" and source_path:
+                ok, msg = exporter._move_local_processed(source_path, filenames)
+            else:
+                return
             if not ok:
-                event_logger.log(SessionLocal(), EventLevel.WARNING, "SMB_MOVE_FAILED", "FLOW", msg)
+                event_logger.log(SessionLocal(), EventLevel.WARNING, "MOVE_FAILED", "FLOW", msg)
         except Exception as e:
-            event_logger.log(SessionLocal(), EventLevel.WARNING, "SMB_MOVE_ERROR", "FLOW", str(e))
+            event_logger.log(SessionLocal(), EventLevel.WARNING, "MOVE_ERROR", "FLOW", str(e))
