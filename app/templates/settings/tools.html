@@ -437,7 +437,13 @@
             try {
                 const endpoint = doExport ? '/api/v1/flows/' + flowId + '/export' : '/api/v1/flows/' + flowId + '/run';
                 const res = await fetch(endpoint, { method: 'POST' });
-                const data = await res.json();
+                const raw = await res.text();
+                let data = null;
+                try {
+                    data = JSON.parse(raw);
+                } catch (_e) {
+                    data = { success: false, message: raw || 'Respuesta invalida del servidor' };
+                }
 
                 if (data.success) {
                     card.className = 'test-card pass';

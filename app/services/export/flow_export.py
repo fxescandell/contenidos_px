@@ -124,7 +124,7 @@ class FlowExporter:
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         shutil.copy2(local_source_path, destination)
 
-    def upload_to_outfolder(self, municipality: str, filename: str, json_content: str) -> Tuple[bool, str]:
+    def upload_to_outfolder(self, municipality: str, filename: str, file_content: str, content_label: str = "JSON") -> Tuple[bool, str]:
         mode = self._get_active_mode()
         target_folder = self._get_outfolder_mapping(municipality, mode).get("base_path", "")
 
@@ -139,14 +139,14 @@ class FlowExporter:
             filepath = os.path.join(folder, filename)
             try:
                 with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(json_content)
-                return True, f"JSON escrito localmente: {filepath}"
+                    f.write(file_content)
+                return True, f"{content_label} escrito localmente: {filepath}"
             except Exception as e:
-                return False, f"Error escribiendo JSON local: {e}"
+                return False, f"Error escribiendo {content_label} local: {e}"
         else:
             remote_dir = target_folder if str(target_folder).startswith("/") else f"/{str(target_folder).lstrip('/')}"
             remote_path = f"{remote_dir}/{filename}"
-            ok, msg = self._upload_ftp(remote_path, json_content.encode("utf-8"))
+            ok, msg = self._upload_ftp(remote_path, file_content.encode("utf-8"), content_label=content_label)
             return ok, msg
 
     def move_to_processed(self, source_path: str, filenames: List[str]) -> Tuple[bool, str]:
@@ -209,7 +209,7 @@ class FlowExporter:
         except Exception as e:
             return False, f"Error moviendo ficheros SMB: {e}"
 
-    def _upload_ftp(self, remote_path: str, content: bytes) -> Tuple[bool, str]:
+    def _upload_ftp(self, remote_path: str, content: bytes, content_label: str = "JSON") -> Tuple[bool, str]:
         try:
             from ftplib import FTP
             from app.services.settings.service import SettingsResolver
@@ -248,6 +248,6 @@ class FlowExporter:
 
             ftp.storbinary(f"STOR {filename}", BytesIO(content))
             ftp.quit()
-            return True, f"JSON subido por FTP: {remote_path}"
+            return True, f"{content_label} subido por FTP: {remote_path}"
         except Exception as e:
-            return False, f"Error subiendo JSON por FTP: {e}"
+            return False, f"Error subiendo {content_label} por FTP: {e}"

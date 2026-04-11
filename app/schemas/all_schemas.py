@@ -150,7 +150,7 @@ class EditorialBuildResult(BaseModel):
     errors: List[str] = Field(default_factory=list)
     editorial_confidence: Optional[float] = None
     inserted_images: List[str] = Field(default_factory=list)
-    featured_image_ref: Optional[str] = None
+    featured_image_ref: Optional[UUID] = None
 
 class AdapterBuildResult(BaseModel):
     canonical_id: UUID

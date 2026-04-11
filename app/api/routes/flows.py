@@ -1,3 +1,4 @@
+import os
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -66,7 +67,6 @@ def get_hotfolder_info(db: Session = Depends(get_db)):
 
 @router.get("/browse-folders")
 def browse_folders(mode: str = Query("smb"), db: Session = Depends(get_db)):
-    import os
     SettingsResolver.reload(db)
     folders = []
 
@@ -384,38 +384,58 @@ def export_flow(flow_id: UUID, db: Session = Depends(get_db)):
     if not flow:
         raise HTTPException(status_code=404, detail="Flow no encontrado")
 
-    SettingsResolver.reload(db)
-    flow_service = FlowService(settings)
-    result = flow_service.run_flow(flow)
+    try:
+        SettingsResolver.reload(db)
+        flow_service = FlowService(settings)
+        result = flow_service.run_flow(flow)
 
-    if not result.get("success"):
-        return {"success": False, "message": f"Error en procesamiento: {result.get('message', '')}"}
+        if not result.get("success"):
+            return {"success": False, "message": f"Error en procesamiento: {result.get('message', '')}"}
 
-    exporter = FlowExporter()
-    image_uploads = result.get("image_uploads", []) or []
-    if image_uploads:
-        images_ok, images_msg, _uploaded = exporter.upload_image_assets(flow.municipality, image_uploads)
-        if not images_ok:
+        exporter = FlowExporter()
+        image_uploads = result.get("image_uploads", []) or []
+        if image_uploads:
+            images_ok, images_msg, _uploaded = exporter.upload_image_assets(flow.municipality, image_uploads)
+            if not images_ok:
+                flow_repo.update(db, db_obj=flow, obj_in={
+                    "last_run_at": datetime.now(),
+                    "last_run_status": "ERROR",
+                    "last_run_summary": f"{result.get('message', '')} | {images_msg}"[:255]
+                })
+                return {"success": False, "message": f"Error subiendo imagenes: {images_msg}"}
+
+        json_content = flow_service.generate_json(flow, result.get("articles", []), result.get("export_payload"))
+        csv_content = flow_service.generate_csv(flow, result.get("articles", []), result.get("export_payload"))
+
+        upload_ok, upload_msg = exporter.upload_to_outfolder(flow.municipality, flow.output_filename, json_content, content_label="JSON")
+        if csv_content:
+            csv_filename_base, _ext = os.path.splitext(flow.output_filename)
+            csv_filename = f"{csv_filename_base}.csv" if csv_filename_base else f"{flow.output_filename}.csv"
+            csv_ok, csv_msg = exporter.upload_to_outfolder(flow.municipality, csv_filename, csv_content, content_label="CSV")
+            if not csv_ok:
+                upload_ok = False
+            upload_msg = f"{upload_msg} | {csv_msg}" if upload_msg else csv_msg
+
+        flow_repo.update(db, db_obj=flow, obj_in={
+            "last_run_at": datetime.now(),
+            "last_run_status": "EXPORTED" if upload_ok else "ERROR",
+            "last_run_summary": f"{result.get('message', '')} | {upload_msg}"
+        })
+
+        return {
+            "success": upload_ok,
+            "message": result.get("message", ""),
+            "upload": upload_msg,
+            "articles_count": len(result.get("articles", [])),
+            "classification": result.get("classification")
+        }
+    except Exception as e:
+        try:
             flow_repo.update(db, db_obj=flow, obj_in={
                 "last_run_at": datetime.now(),
                 "last_run_status": "ERROR",
-                "last_run_summary": f"{result.get('message', '')} | {images_msg}"[:255]
+                "last_run_summary": str(e)[:255]
             })
-            return {"success": False, "message": f"Error subiendo imagenes: {images_msg}"}
-
-    json_content = flow_service.generate_json(flow, result.get("articles", []), result.get("export_payload"))
-    upload_ok, upload_msg = exporter.upload_to_outfolder(flow.municipality, flow.output_filename, json_content)
-
-    flow_repo.update(db, db_obj=flow, obj_in={
-        "last_run_at": datetime.now(),
-        "last_run_status": "EXPORTED" if upload_ok else "ERROR",
-        "last_run_summary": f"{result.get('message', '')} | {upload_msg}"
-    })
-
-    return {
-        "success": upload_ok,
-        "message": result.get("message", ""),
-        "upload": upload_msg,
-        "articles_count": len(result.get("articles", [])),
-        "classification": result.get("classification")
-    }
+        except Exception:
+            pass
+        return {"success": False, "message": f"Error interno exportando flujo: {e}"}

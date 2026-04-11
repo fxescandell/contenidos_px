@@ -67,7 +67,7 @@ class EditorialBuilderService:
                 warnings=warnings,
                 errors=errors,
                 editorial_confidence=0.9,
-                featured_image_ref=str(images[0].source_file_id) if images else None,
+                featured_image_ref=images[0].source_file_id if images else None,
             )
 
         return self._fallback_build(extracted_text, classification, images, warnings, errors, category_config)
@@ -194,7 +194,7 @@ class EditorialBuilderService:
             warnings=warnings,
             errors=errors,
             editorial_confidence=0.5,
-            featured_image_ref=str(images[0].source_file_id) if images else None,
+            featured_image_ref=images[0].source_file_id if images else None,
         )
 
     def _extract_structured_fields(

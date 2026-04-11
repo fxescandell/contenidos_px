@@ -2,6 +2,8 @@ import json
 import os
 import shutil
 import tempfile
+import csv
+from io import StringIO
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -9,6 +11,7 @@ from app.db.flow_models import Flow
 from app.db.session import SessionLocal
 from app.db.repositories.flow_repos import flow_repo
 from app.services.ingestion.service import IngestionService
+from app.services.grouping.orchestrator import GroupingOrchestrator
 from app.services.extraction.orchestrator import ExtractionOrchestrator
 from app.services.classification.orchestrator import ClassificationOrchestrator
 from app.services.editorial.builder import EditorialBuilderService
@@ -33,7 +36,7 @@ class FlowService:
         working_dir = SettingsResolver.get("working_folder_path") or config.WORKING_DIRECTORY
         export_dir = SettingsResolver.get("export_output_path") or config.EXPORT_DIRECTORY
         self.ingestion_service = IngestionService(working_dir)
-        self.grouping_orchestrator = None
+        self.grouping_orchestrator = GroupingOrchestrator()
         self.extraction_orchestrator = ExtractionOrchestrator()
         self.classification_orchestrator = ClassificationOrchestrator()
         self.editorial_builder = EditorialBuilderService()
@@ -203,7 +206,13 @@ class FlowService:
                 source_path = source_info["resolved_path"]
                 if not source_path or not os.path.exists(source_path):
                     return {"success": False, "message": f"Carpeta no encontrada: {source_path}"}
-                local_files = [f for f in os.listdir(source_path) if not f.startswith('.') and f.lower().endswith(SUPPORTED_EXTENSIONS)]
+                local_files = []
+                for root, _, files in os.walk(source_path):
+                    for filename in files:
+                        if filename.startswith('.') or not filename.lower().endswith(SUPPORTED_EXTENSIONS):
+                            continue
+                        rel_path = os.path.relpath(os.path.join(root, filename), source_path)
+                        local_files.append(rel_path)
                 if not local_files:
                     return {"success": False, "message": f"No hay ficheros procesables en: {source_path}"}
                 downloaded_files = local_files
@@ -255,100 +264,133 @@ class FlowService:
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FAILED, "error_message": "No hay documentos ni imagenes procesables"})
                 return {"success": False, "message": "No se encontraron documentos validos tras la ingesion"}
 
-            extractions = self.extraction_orchestrator.process_files(
-                [{"id": f.id, "path": f.working_path} for f in docs + imgs]
-            )
+            groups = self.grouping_orchestrator.group_batch(batch, source_files)
+            if not groups:
+                source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FAILED, "error_message": "No se pudieron agrupar los contenidos"})
+                return {"success": False, "message": "No se pudieron agrupar los contenidos del lote"}
 
             hints = {
                 "municipality_hint": flow.municipality or "",
                 "category_hint": flow.category or ""
             }
 
-            from app.schemas.all_schemas import GroupingResult
-            fake_grouping = GroupingResult(
-                candidate_key=f"{flow.municipality}_{flow.category}",
-                strategy=CandidateGroupingStrategy.DIRECTORY_BASED,
-                confidence=1.0,
-                assigned_files=[{"id": f.id, "name": f.file_name} for f in source_files]
-            )
-
-            classification = self.classification_orchestrator.classify_candidate(fake_grouping, extractions, hints)
-            processed_images = self.image_processor.process_images(None, imgs)
-
             from app.services.export.flow_export import FlowExporter
             exporter = FlowExporter()
-            image_uploads = exporter.plan_image_uploads(flow.municipality, processed_images)
-            public_image_map = {item.get("source_file_id", ""): item for item in image_uploads}
-            editorial_images = []
-            for image in processed_images:
-                mapped = public_image_map.get(str(image.source_file_id), {})
-                editorial_images.append(image.model_copy(update={
-                    "optimized_path": mapped.get("optimized_public_url") or image.optimized_path,
-                    "thumbnail_path": mapped.get("thumbnail_public_url") or image.thumbnail_path,
-                }))
 
-            combined_text = "\n".join([e.cleaned_text for e in extractions])
-            editorial = self.editorial_builder.build_editorial_content(classification, combined_text, editorial_images, {})
+            articles = []
+            export_payloads = []
+            image_uploads = []
+            classifications = []
+            candidate_statuses = []
 
-            candidate = content_candidate_repo.create(db, obj_in={
-                "batch_id": batch.id,
-                "candidate_key": fake_grouping.candidate_key,
-                "grouping_strategy": fake_grouping.strategy,
-                "grouping_confidence": fake_grouping.confidence,
-                "classification_confidence": classification.classification_confidence,
-                "status": CandidateStatus.CREATED
-            })
+            for group in groups:
+                assigned_ids = [item.get("id") for item in group.assigned_files]
+                assigned_files = [f for f in source_files if f.id in assigned_ids]
+                group_docs = [f for f in assigned_files if f.extension in [".pdf", ".docx"]]
+                group_imgs = [f for f in assigned_files if f.extension in [".jpg", ".jpeg", ".png"]]
 
-            canonical = canonical_content_repo.create(db, obj_in={
-                "candidate_id": candidate.id,
-                "municipality": classification.municipality,
-                "category": classification.category,
-                "subtype": classification.subtype,
-                "final_title": editorial.final_title,
-                "final_summary": editorial.final_summary,
-                "final_body_html": editorial.final_body_html,
-                "structured_fields_json": editorial.structured_fields,
-                "requires_review": classification.requires_review,
-                "review_reasons_json": classification.review_reasons
-            })
+                if not group_docs and not group_imgs:
+                    continue
 
-            adapter = AdapterFactory.get_adapter(classification.category)
-            adapter_result = adapter.build_payload(canonical)
+                candidate = content_candidate_repo.create(db, obj_in={
+                    "batch_id": batch.id,
+                    "candidate_key": group.candidate_key,
+                    "grouping_strategy": group.strategy,
+                    "grouping_confidence": group.confidence,
+                    "status": CandidateStatus.CREATED
+                })
 
-            if not adapter_result.is_ready_for_export:
-                canonical_content_repo.update(db, db_obj=canonical, obj_in={"requires_review": True})
-                content_candidate_repo.update(db, db_obj=candidate, obj_in={"status": CandidateStatus.REVIEW_REQUIRED})
-                event_logger.log(db, EventLevel.WARNING, "CANDIDATE_REVIEW_REQUIRED", "FLOW", "Validacion fallida", candidate_id=candidate.id)
+                extractions = self.extraction_orchestrator.process_files(
+                    [{"id": f.id, "path": f.working_path} for f in group_docs + group_imgs]
+                )
+                classification = self.classification_orchestrator.classify_candidate(group, extractions, hints)
+                processed_images = self.image_processor.process_images(candidate, group_imgs)
+
+                candidate_image_uploads = exporter.plan_image_uploads(flow.municipality, processed_images)
+                public_image_map = {item.get("source_file_id", ""): item for item in candidate_image_uploads}
+                editorial_images = []
+                for image in processed_images:
+                    mapped = public_image_map.get(str(image.source_file_id), {})
+                    editorial_images.append(image.model_copy(update={
+                        "optimized_path": mapped.get("optimized_public_url") or image.optimized_path,
+                        "thumbnail_path": mapped.get("thumbnail_public_url") or image.thumbnail_path,
+                    }))
+
+                combined_text = "\n".join([e.cleaned_text for e in extractions])
+                editorial = self.editorial_builder.build_editorial_content(classification, combined_text, editorial_images, {})
+
+                canonical = canonical_content_repo.create(db, obj_in={
+                    "candidate_id": candidate.id,
+                    "municipality": classification.municipality,
+                    "category": classification.category,
+                    "subtype": classification.subtype,
+                    "final_title": editorial.final_title,
+                    "final_summary": editorial.final_summary,
+                    "final_body_html": editorial.final_body_html,
+                    "structured_fields_json": editorial.structured_fields,
+                    "requires_review": classification.requires_review,
+                    "review_reasons_json": classification.review_reasons
+                })
+
+                if editorial.featured_image_ref:
+                    try:
+                        content_candidate_repo.update(db, db_obj=candidate, obj_in={"featured_source_file_id": editorial.featured_image_ref})
+                    except Exception:
+                        db.rollback()
+
+                adapter = AdapterFactory.get_adapter(classification.category)
+                adapter_result = adapter.build_payload(canonical)
+                if adapter_result.raw_payload is not None:
+                    export_payloads.append(adapter_result.raw_payload)
+
+                if not adapter_result.is_ready_for_export:
+                    canonical_content_repo.update(db, db_obj=canonical, obj_in={"requires_review": True})
+                    content_candidate_repo.update(db, db_obj=candidate, obj_in={"status": CandidateStatus.REVIEW_REQUIRED})
+                    candidate_statuses.append(CandidateStatus.REVIEW_REQUIRED)
+                    event_logger.log(db, EventLevel.WARNING, "CANDIDATE_REVIEW_REQUIRED", "FLOW", "Validacion fallida", candidate_id=candidate.id)
+                else:
+                    content_candidate_repo.update(db, db_obj=candidate, obj_in={"status": CandidateStatus.EXPORTED})
+                    candidate_statuses.append(CandidateStatus.EXPORTED)
+                    event_logger.log(db, EventLevel.INFO, "CANDIDATE_EXPORTED", "FLOW", "Candidato exportado", candidate_id=candidate.id)
+
+                image_uploads.extend(candidate_image_uploads)
+                classifications.append({
+                    "municipality": classification.municipality,
+                    "category": classification.category,
+                    "confidence": classification.classification_confidence,
+                    "review_required": classification.requires_review,
+                    "reasons": classification.review_reasons,
+                    "candidate_key": group.candidate_key,
+                })
+                articles.append({
+                    "title": editorial.final_title,
+                    "summary": editorial.final_summary,
+                    "body_html": editorial.final_body_html,
+                    "images": [item.get("optimized_public_url") for item in candidate_image_uploads if item.get("optimized_public_url")],
+                    "municipality": classification.municipality,
+                    "category": classification.category,
+                    "structured_fields": editorial.structured_fields,
+                    "candidate_key": group.candidate_key,
+                })
+
+            if not articles:
+                source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FAILED, "error_message": "No se pudieron generar contenidos exportables"})
+                return {"success": False, "message": "No se pudieron generar contenidos exportables"}
+
+            if any(status == CandidateStatus.REVIEW_REQUIRED for status in candidate_statuses):
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.REVIEW_REQUIRED})
             else:
-                content_candidate_repo.update(db, db_obj=candidate, obj_in={"status": CandidateStatus.EXPORTED})
-                event_logger.log(db, EventLevel.INFO, "CANDIDATE_EXPORTED", "FLOW", "Candidato exportado", candidate_id=candidate.id)
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FINISHED})
-
-            articles = [{
-                "title": editorial.final_title,
-                "summary": editorial.final_summary,
-                "body_html": editorial.final_body_html,
-                "images": [item.get("optimized_public_url") for item in image_uploads if item.get("optimized_public_url")],
-                "municipality": classification.municipality,
-                "category": classification.category,
-                "structured_fields": editorial.structured_fields,
-            }]
 
             self._move_processed_files(source_info, downloaded_files)
 
             return {
                 "success": True,
-                "message": f"Procesados {len(source_files)} ficheros de {flow.name}",
+                "message": f"Procesados {len(articles)} contenidos y {len(source_files)} ficheros de {flow.name}",
                 "articles": articles,
-                "classification": {
-                    "municipality": classification.municipality,
-                    "category": classification.category,
-                    "confidence": classification.classification_confidence,
-                    "review_required": classification.requires_review,
-                    "reasons": classification.review_reasons
-                },
-                "export_payload": adapter_result.raw_payload,
+                "classification": classifications[0] if classifications else None,
+                "classifications": classifications,
+                "export_payload": self._merge_export_payloads(export_payloads),
                 "image_uploads": image_uploads,
                 "files_count": len(source_files),
                 "batch_id": str(batch.id)
@@ -366,18 +408,100 @@ class FlowService:
                 shutil.rmtree(local_temp_dir, ignore_errors=True)
             db.close()
 
-    def generate_json(self, flow: Flow, articles: List[Dict[str, Any]], export_payload: Optional[Any] = None) -> str:
+    def build_export_payload(self, flow: Flow, articles: List[Dict[str, Any]], export_payload: Optional[Any] = None) -> Any:
         if export_payload is not None:
-            data = export_payload
-        else:
-            data = {
-                "municipality": flow.municipality,
-                "category": flow.category,
-                "generated_at": datetime.now().isoformat(),
-                "flow_name": flow.name,
-                "articles": articles
-            }
+            return export_payload
+        return {
+            "municipality": flow.municipality,
+            "category": flow.category,
+            "generated_at": datetime.now().isoformat(),
+            "flow_name": flow.name,
+            "articles": articles
+        }
+
+    def generate_json(self, flow: Flow, articles: List[Dict[str, Any]], export_payload: Optional[Any] = None) -> str:
+        data = self.build_export_payload(flow, articles, export_payload)
         return json.dumps(data, ensure_ascii=False, indent=2)
+
+    def generate_csv(self, flow: Flow, articles: List[Dict[str, Any]], export_payload: Optional[Any] = None) -> str:
+        data = self.build_export_payload(flow, articles, export_payload)
+        rows = self._payload_to_csv_rows(data)
+        if not rows:
+            return ""
+
+        headers: List[str] = []
+        for row in rows:
+            for key in row.keys():
+                if key not in headers:
+                    headers.append(key)
+
+        buffer = StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=headers)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: self._serialize_csv_value(row.get(key)) for key in headers})
+        return buffer.getvalue()
+
+    def _payload_to_csv_rows(self, payload: Any) -> List[Dict[str, Any]]:
+        if isinstance(payload, dict):
+            if isinstance(payload.get("articles"), list) and all(isinstance(item, dict) for item in payload.get("articles", [])):
+                return payload["articles"]
+
+            if set(payload.keys()) >= {"source", "version", "adapter", "data"} and isinstance(payload.get("data"), dict):
+                return [payload["data"]]
+
+            if payload and all(isinstance(value, dict) for value in payload.values()):
+                rows = []
+                for root_key, value in payload.items():
+                    row = dict(value)
+                    if "ID" not in row and "id" not in row:
+                        row["ID"] = root_key
+                    rows.append(row)
+                return rows
+
+            return [payload]
+
+        if isinstance(payload, list):
+            if all(isinstance(item, dict) for item in payload):
+                return payload
+            return [{"value": item} for item in payload]
+
+        return [{"value": payload}]
+
+    def _serialize_csv_value(self, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+    def _merge_export_payloads(self, payloads: List[Any]) -> Optional[Any]:
+        if not payloads:
+            return None
+        if len(payloads) == 1:
+            return payloads[0]
+
+        if all(isinstance(payload, dict) for payload in payloads):
+            merged: Dict[str, Any] = {}
+            for payload in payloads:
+                for key, value in payload.items():
+                    final_key = key
+                    suffix = 2
+                    while final_key in merged:
+                        final_key = f"{key}_{suffix}"
+                        suffix += 1
+                    merged[final_key] = value
+            return merged
+
+        if all(isinstance(payload, list) for payload in payloads):
+            merged_list: List[Any] = []
+            for payload in payloads:
+                merged_list.extend(payload)
+            return merged_list
+
+        return payloads
 
     def _move_processed_files(self, source_info: Dict[str, Any], filenames: List[str]) -> None:
         try:

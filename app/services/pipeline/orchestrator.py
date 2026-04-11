@@ -107,7 +107,10 @@ class PipelineOrchestrator:
                 
                 # Update candidate with featured image
                 if editorial.featured_image_ref:
-                    content_candidate_repo.update(db, db_obj=candidate, obj_in={"featured_source_file_id": editorial.featured_image_ref})
+                    try:
+                        content_candidate_repo.update(db, db_obj=candidate, obj_in={"featured_source_file_id": editorial.featured_image_ref})
+                    except Exception:
+                        db.rollback()
                 
                 # 8. Create Canonical
                 canonical = canonical_content_repo.create(db, obj_in={
