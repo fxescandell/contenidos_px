@@ -241,6 +241,19 @@ def test_apply_final_review_updates_content_and_refreshes_seo_fields():
     assert structured_fields["final_review_notes"] == ["Revisio aplicada"]
 
 
+def test_enhance_html_structure_adds_headings_and_bold_labels():
+    service = EditorialBuilderService()
+
+    enhanced = service._enhance_html_structure(
+        "<p>Organització i col·laboracions</p><p>Patrocinadors: Veolia, Banc Sabadell i Macusa.</p><p>Paragraf de desenvolupament.</p>",
+        "NOTICIES",
+    )
+
+    assert "<h2" in enhanced or "<h3" in enhanced
+    assert "Organització i col·laboracions" in enhanced
+    assert "<strong>Patrocinadors:</strong>" in enhanced
+
+
 def test_assign_activity_image_refs_matches_by_filename_tokens():
     service = EditorialBuilderService()
     activity_title_image = ImageProcessingResult(
@@ -394,3 +407,30 @@ def test_ensure_source_text_is_preserved_rebuilds_short_agenda_body_from_source(
     assert "Xaranga Magic" in rebuilt
     assert "agenda-datetime" in rebuilt
     assert "agenda-location" in rebuilt
+
+
+def test_build_source_preserving_agenda_body_keeps_ai_intro_blocks_and_program():
+    service = EditorialBuilderService()
+    source_text = (
+        "Firhabitat\n\n"
+        "PROGRAMACIÓ\n\n"
+        "DIVENDRES, 24 ABRIL\n\n"
+        "Sala Ateneu\n\n"
+        "9 h Benvinguda\n\n"
+        "10 h Concert acústic"
+    )
+    listing_items = service._extract_content_items_from_source(source_text, "AGENDA")
+
+    body_html = service._build_source_preserving_body_html(
+        source_text,
+        "Resum SEO del certamen.",
+        "AGENDA",
+        listing_items,
+        "<p>Firhabitat és la trobada de referència de la bioconstrucció al Berguedà.</p><p>Durant tres dies ofereix activitats professionals i familiars.</p>",
+    )
+
+    assert "Firhabitat és la trobada de referència" in body_html
+    assert "Durant tres dies ofereix activitats" in body_html
+    assert 'class="agenda-title"' in body_html
+    assert 'Benvinguda' in body_html
+    assert 'Concert acústic' in body_html

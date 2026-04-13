@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from app.schemas.all_schemas import EditorialBuildResult, ImageProcessingResult
 from app.schemas.classification import FinalClassificationResult
+from app.services.editorial.agenda_parser import agenda_events_to_content_items, parse_agenda, render_agenda_html, render_highlight_box
 from app.services.editorial.final_review import final_review_service
 from app.services.categories.service import (
     get_category_export_config,
@@ -149,6 +150,7 @@ class EditorialBuilderService:
             "summary (resum 1-2 frases), body_html (cos en HTML net amb <p>, <h2>, <ul>, <strong>) "
             "i strict_export_payload (objecte JSON final si hi ha plantilla estricta). "
             "Idioma obligatori: catala. No pots redactar cap contingut editorial en castella ni en cap altre idioma, excepte noms propis, marques o cites literals imprescindibles. "
+            "El body_html ha de tenir jerarquia visual real: usa h2 i h3 quan hi hagi apartats o subapartats, <strong> per remarcar idees o etiquetes clau i <em> quan calgui un matis editorial. "
             "No facis servir Markdown, nomes HTML."
         )
         prompt = (
@@ -202,6 +204,7 @@ class EditorialBuilderService:
             "Optimitza el title, el summary i el body_html per SEO sense inventar dades i mantenint la fidelitat al contingut base. "
             "No deixis signatures com AMIC o Redaccio dins del cos de l'article. Estructura el body_html en blocs o seccions naturals per facilitar la insercio intercalada d'imatges dins del contingut. "
             "La redaccio final ha de ser sempre en catala. "
+            "No deixis tot el contingut en simples <p>: decideix quan calen titols, subtitols, negretes o italica per fer el text mes clar i atractiu. "
             "No pots resumir reduint informacio: has de conservar tots els apartats, activitats, esdeveniments o seccions del text original i, si cal, ampliar-los amb context real i verificable.\n\n"
         )
         prompt += (
@@ -454,6 +457,7 @@ class EditorialBuilderService:
             self._prepare_listing_items(structured_fields),
         )
         reviewed_body_html = self._sanitize_body_html(reviewed_body_html, original_text, reviewed_title, source_context)
+        reviewed_body_html = self._enhance_html_structure(reviewed_body_html, metadata.get("category") or category)
 
         featured_image_path = structured_fields.get("rank_math_facebook_image") or structured_fields.get("_featured_image_path") or (images[0].optimized_path if images and images[0].optimized_path else "")
         seo_fields = self._build_seo_fields(
@@ -698,6 +702,9 @@ class EditorialBuilderService:
         return normalized
 
     def _extract_content_items_from_source(self, body_text: str, category: str) -> List[Dict[str, Any]]:
+        if category == "AGENDA":
+            return agenda_events_to_content_items(parse_agenda(body_text).get("events", []))
+
         chunks = self._source_chunks(body_text)
         if len(chunks) < 4:
             return []
@@ -1022,10 +1029,38 @@ class EditorialBuilderService:
         if not needs_preservation:
             return body_html
 
-        preserved_html = self._build_source_preserving_body_html(body_text, summary, category, listing_items)
+        preserved_html = self._build_source_preserving_body_html(body_text, summary, category, listing_items, body_html)
         return preserved_html or body_html
 
-    def _build_source_preserving_body_html(self, body_text: str, summary: str, category: str, listing_items: List[Dict[str, Any]]) -> str:
+    def _build_source_preserving_body_html(self, body_text: str, summary: str, category: str, listing_items: List[Dict[str, Any]], draft_body_html: str) -> str:
+        if category == "AGENDA":
+            parsed = parse_agenda(body_text)
+            html_parts = []
+            summary_text = self._clean_text_line(summary)
+            if summary_text:
+                html_parts.append(f'<p class="agenda-standfirst"><strong>{html.escape(summary_text)}</strong></p>')
+            intro_blocks = self._extract_agenda_intro_blocks(draft_body_html)
+            used_intro_text = self._normalize_token(self._strip_html(" ".join(intro_blocks)))
+            intro_section_parts = []
+            for block in intro_blocks:
+                intro_section_parts.append(self._style_agenda_intro_block(block))
+            for chunk in parsed.get("intro", []):
+                normalized_chunk = self._normalize_token(chunk)
+                if normalized_chunk and normalized_chunk not in used_intro_text:
+                    intro_section_parts.append(f'<p>{html.escape(chunk)}</p>')
+            if intro_section_parts:
+                html_parts.append('<section class="agenda-intro">')
+                html_parts.extend(intro_section_parts)
+                html_parts.append('</section>')
+            for highlight in parsed.get("highlights", []):
+                html_parts.append(render_highlight_box(highlight))
+            events = parsed.get("events", [])
+            if events:
+                html_parts.append('<h2 class="agenda-program-title">Programa</h2>')
+                html_parts.append(render_agenda_html(events))
+            html_parts.extend(self._render_agenda_trailing_blocks(parsed.get("trailing", [])))
+            return "\n".join(part for part in html_parts if part)
+
         chunks = self._source_chunks(body_text)
         if not chunks:
             return ""
@@ -1064,6 +1099,108 @@ class EditorialBuilderService:
             html_parts.extend(current_section)
 
         return "\n".join(html_parts)
+
+    def _extract_agenda_intro_blocks(self, draft_body_html: str) -> List[str]:
+        if not draft_body_html:
+            return []
+        blocks = self._split_html_blocks(draft_body_html)
+        intro_blocks = []
+        for block in blocks:
+            if 'class="agenda-' in block or 'class="panxing-inline-image"' in block or 'class="highlight-box"' in block:
+                continue
+            plain = self._clean_text_line(self._strip_html(block))
+            if not plain:
+                continue
+            if re.search(r"\b\d{1,2}(?::\d{2})?\s*h\b", plain.lower()):
+                continue
+            intro_blocks.append(block)
+            if len(intro_blocks) >= 4:
+                break
+        return intro_blocks
+
+    def _style_agenda_intro_block(self, block: str) -> str:
+        if block.startswith("<h"):
+            return block
+        if block.startswith("<p"):
+            plain = self._clean_text_line(self._strip_html(block))
+            if self._looks_like_visual_heading(plain):
+                return f'<h2>{html.escape(plain)}</h2>'
+            return self._emphasize_leading_label(block)
+        return block
+
+    def _enhance_html_structure(self, body_html: str, category: str) -> str:
+        blocks = self._split_html_blocks(body_html)
+        if not blocks:
+            return body_html
+
+        enhanced = []
+        heading_count = 0
+        for block in blocks:
+            if block.startswith("<p"):
+                plain = self._clean_text_line(self._strip_html(block))
+                if self._looks_like_visual_heading(plain):
+                    tag = "h2" if heading_count == 0 else "h3"
+                    enhanced.append(f'<{tag}>{html.escape(plain)}</{tag}>')
+                    heading_count += 1
+                    continue
+                block = self._emphasize_leading_label(block)
+            enhanced.append(block)
+        return "\n".join(enhanced)
+
+    def _looks_like_visual_heading(self, text: str) -> bool:
+        clean = self._clean_text_line(text)
+        if not clean or len(clean) > 95:
+            return False
+        if re.search(r"\b\d{1,2}(?::\d{2})?\s*h\b", clean.lower()):
+            return False
+        if clean.endswith(('.', '!', '?')):
+            return False
+        alpha_chars = [char for char in clean if char.isalpha()]
+        if not alpha_chars:
+            return False
+        upper_ratio = sum(1 for char in alpha_chars if char.isupper()) / len(alpha_chars)
+        if upper_ratio >= 0.25:
+            return True
+        if len(clean.split()) <= 6 and not clean.endswith(('.', '!', '?')):
+            return True
+        return len(clean.split()) <= 8 and ":" in clean
+
+    def _emphasize_leading_label(self, block: str) -> str:
+        def replace(match: re.Match) -> str:
+            label = self._clean_text_line(match.group(1))
+            rest = match.group(2)
+            return f"<p><strong>{html.escape(label)}:</strong>{rest}</p>"
+
+        return re.sub(r"(?is)^<p>\s*([^:<]{2,45}):\s*(.+)</p>$", replace, block)
+
+    def _render_agenda_trailing_blocks(self, trailing_chunks: List[str]) -> List[str]:
+        if not trailing_chunks:
+            return []
+
+        parts: List[str] = []
+        for chunk in trailing_chunks:
+            if chunk.isupper() or chunk.endswith(":"):
+                parts.append(f'<h3 class="agenda-section">{html.escape(self._format_source_heading(chunk.rstrip(":")))}</h3>')
+            elif chunk:
+                if self._looks_like_support_subheading(chunk):
+                    parts.append(f'<h4>{html.escape(chunk)}</h4>')
+                else:
+                    parts.append(f'<p>{html.escape(chunk)}</p>')
+        return parts
+
+    def _looks_like_support_subheading(self, text: str) -> bool:
+        clean = self._clean_text_line(text)
+        if not clean:
+            return False
+        if len(clean) > 50:
+            return False
+        if re.search(r"\bwww\.|\bhttps?://", clean.lower()):
+            return False
+        alpha_chars = [char for char in clean if char.isalpha()]
+        if not alpha_chars:
+            return False
+        upper_ratio = sum(1 for char in alpha_chars if char.isupper()) / len(alpha_chars)
+        return upper_ratio >= 0.35 or len(clean.split()) <= 4
 
     def _render_agenda_item_block(self, item: Dict[str, Any]) -> str:
         parts = ['<section class="panxing-agenda-item" style="margin:0 0 26px 0; padding:18px 18px 16px; border:1px solid #eadfca; background:#fffdf8; border-radius:12px;">']

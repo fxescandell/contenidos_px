@@ -33,7 +33,8 @@ class FinalReviewService:
             "La redaccio final ha de ser obligatoriament en catala. "
             "Has de revisar un article ja estructurat per comprovar fidelitat al text original, SEO, ortografia, gramatica i coherencia editorial. "
             "No pots inventar dades ni reduir informacio rellevant del text base. "
-            "Has de mantenir i preservar figures, blocs destacats, activitats, llistats i estructures HTML importants quan ja existeixin."
+            "Has de mantenir i preservar figures, blocs destacats, activitats, llistats i estructures HTML importants quan ja existeixin. "
+            "Si el body_html esta massa pla, has de millorar la jerarquia visual amb h2, h3, <strong> i <em> quan sigui pertinent, sense fer-lo artificial."
         )
         prompt = (
             f"Municipi: {municipality}\n"
