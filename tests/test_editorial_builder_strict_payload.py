@@ -148,6 +148,20 @@ def test_select_featured_image_prefers_ai_choice_when_available():
     assert featured.source_file_id == second_id
 
 
+def test_select_featured_image_fallback_prefers_poster_like_filename():
+    service = EditorialBuilderService()
+    regular_id = uuid4()
+    poster_id = uuid4()
+    images = [
+        ImageProcessingResult(source_file_id=regular_id, optimized_path="https://example.com/xaranga-magic_opt.jpg", width=1400, height=900),
+        ImageProcessingResult(source_file_id=poster_id, optimized_path="https://example.com/fefanet-ok_opt.jpg", width=900, height=1300),
+    ]
+
+    featured = service._select_featured_image_fallback(images)
+
+    assert featured.source_file_id == poster_id
+
+
 def test_insert_inline_images_embeds_non_featured_images_in_body_html():
     service = EditorialBuilderService()
     featured_id = uuid4()
@@ -193,3 +207,190 @@ def test_finalize_editorial_output_stores_featured_image_ref_as_string():
     )
 
     assert structured_fields["featured_image_ref"] == str(featured_id)
+
+
+def test_apply_final_review_updates_content_and_refreshes_seo_fields():
+    service = EditorialBuilderService()
+    service.final_review_service.review_content = lambda **kwargs: {
+        "title": "Titol revisat SEO",
+        "summary": "Resum revisat i correcte en catala.",
+        "body_html": "<p>Cos revisat amb millor redaccio.</p>",
+        "notes": ["Revisio aplicada"],
+    }
+
+    title, summary, body_html, structured_fields = service._apply_final_review(
+        municipality="MARESME",
+        category="NOTICIES",
+        subtype="NONE",
+        original_text="Text original de referencia.",
+        vision_context_text="",
+        title="Titol inicial",
+        summary="Resum inicial",
+        body_html="<p>Cos inicial</p>",
+        structured_fields={"_featured_image_path": "https://example.com/featured.jpg"},
+        images=[],
+        source_context={"author_source": "", "has_highlight_marker": False},
+        metadata={"category": "NOTICIES"},
+    )
+
+    assert title == "Titol revisat SEO"
+    assert summary == "Resum revisat i correcte en catala."
+    assert body_html == "<p>Cos revisat amb millor redaccio.</p>"
+    assert structured_fields["rank_math_title"] == "Titol revisat SEO"
+    assert structured_fields["rank_math_facebook_image"] == "https://example.com/featured.jpg"
+    assert structured_fields["final_review_notes"] == ["Revisio aplicada"]
+
+
+def test_assign_activity_image_refs_matches_by_filename_tokens():
+    service = EditorialBuilderService()
+    activity_title_image = ImageProcessingResult(
+        source_file_id=uuid4(),
+        optimized_path="https://example.com/festival-jazz-calella_opt.jpg",
+        width=1200,
+        height=800,
+    )
+    other_image = ImageProcessingResult(
+        source_file_id=uuid4(),
+        optimized_path="https://example.com/platja-familiar_opt.jpg",
+        width=1200,
+        height=800,
+    )
+    activities = [{
+        "title": "Festival de Jazz de Calella",
+        "datetime_label": "12/08/2026",
+        "location": "Calella",
+        "description": "Concert principal del cap de setmana.",
+        "extra_info": "",
+        "image_ref": "",
+    }]
+
+    enriched = service._assign_activity_image_refs(
+        activities,
+        [activity_title_image, other_image],
+        [activity_title_image, other_image],
+        "Agenda cultural",
+        "Resum",
+        "Context",
+    )
+
+    assert enriched[0]["image_ref"] == "https://example.com/festival-jazz-calella_opt.jpg"
+
+
+def test_extract_structured_fields_keeps_activities_from_llm():
+    service = EditorialBuilderService()
+
+    fields = service._extract_structured_fields({
+        "activities": [{
+            "title": "Fira del Vi",
+            "datetime_label": "10/09/2026",
+            "location": "Mataro",
+            "description": "Tast i mostra de cellers",
+            "extra_info": "Entrada gratuita",
+            "image_ref": "",
+        }]
+    }, "AGENDA", "Text")
+
+    assert len(fields["activities"]) == 1
+    assert fields["activities"][0]["title"] == "Fira del Vi"
+
+
+def test_insert_inline_images_places_listing_image_next_to_matching_section():
+    service = EditorialBuilderService()
+    body_html, inserted = service._insert_inline_images(
+        "<h2>Introduccio</h2><p>Text inicial</p><h2>Restaurant Can Blau</h2><p>Cuina mediterrania.</p><h2>Hotel Mar i Cel</h2><p>Allotjament davant del mar.</p>",
+        [],
+        None,
+        "Ruta gastronomica",
+        [
+            {
+                "title": "Restaurant Can Blau",
+                "datetime_label": "",
+                "location": "Calella",
+                "description": "Cuina mediterrania",
+                "extra_info": "",
+                "image_ref": "https://example.com/can-blau.jpg",
+            }
+        ],
+    )
+
+    assert inserted == ["https://example.com/can-blau.jpg"]
+    assert body_html.index("Restaurant Can Blau") < body_html.index("https://example.com/can-blau.jpg")
+    assert body_html.index("https://example.com/can-blau.jpg") < body_html.index("Hotel Mar i Cel")
+
+
+def test_extract_structured_fields_keeps_content_items_from_llm():
+    service = EditorialBuilderService()
+
+    fields = service._extract_structured_fields({
+        "content_items": [{
+            "title": "Hotel Mar i Cel",
+            "datetime_label": "",
+            "location": "Calella",
+            "description": "Hotel amb spa",
+            "extra_info": "",
+            "image_ref": "",
+        }]
+    }, "NOTICIES", "Text")
+
+    assert len(fields["content_items"]) == 1
+    assert fields["content_items"][0]["title"] == "Hotel Mar i Cel"
+
+
+def test_extract_content_items_from_source_parses_agenda_sections():
+    service = EditorialBuilderService()
+    body_text = (
+        "Musica i teatre familiar\n\n"
+        "HORA DEL CONTE\n\n"
+        "El Pais dels Guarananas, amb Eduard Costa.\n\n"
+        "Divendres 8 de maig • 17 h\n\n"
+        "Biblioteca P. Gual i Pujadas.\n\n"
+        "MUSICA ITINERANT\n\n"
+        "Xaranga Magic.\n\n"
+        "Divendres 8 de maig • 18 h\n\n"
+        "Riera Sant Domenec."
+    )
+
+    items = service._extract_content_items_from_source(body_text, "AGENDA")
+
+    assert len(items) == 2
+    assert items[0]["title"] == "El Pais dels Guarananas, amb Eduard Costa."
+    assert items[0]["extra_info"] == "Hora del conte"
+    assert items[0]["location"] == "Biblioteca P. Gual i Pujadas."
+    assert items[1]["title"] == "Xaranga Magic."
+    assert items[1]["extra_info"] == "Musica itinerant"
+
+
+def test_ensure_source_text_is_preserved_rebuilds_short_agenda_body_from_source():
+    service = EditorialBuilderService()
+    source_text = (
+        "Musica i teatre familiar\n\n"
+        "HORA DEL CONTE\n\n"
+        "El Pais dels Guarananas, amb Eduard Costa.\n\n"
+        "Divendres 8 de maig • 17 h\n\n"
+        "Biblioteca P. Gual i Pujadas.\n\n"
+        "MUSICA ITINERANT\n\n"
+        "Xaranga Magic.\n\n"
+        "Divendres 8 de maig • 18 h\n\n"
+        "Riera Sant Domenec.\n\n"
+        "TEATRE CLOWN\n\n"
+        "HOME de Cris Clown.\n\n"
+        "Divendres 8 de maig • 19 h\n\n"
+        "Placa 1 d'Octubre."
+    )
+    listing_items = service._extract_content_items_from_source(source_text, "AGENDA")
+
+    rebuilt = service._ensure_source_text_is_preserved(
+        "<p>Festival familiar amb activitats per a tothom.</p>",
+        source_text,
+        "Resum SEO del festival familiar.",
+        "AGENDA",
+        listing_items,
+    )
+
+    assert "Resum SEO del festival familiar." in rebuilt
+    assert "Hora del conte" in rebuilt
+    assert "Musica itinerant" in rebuilt
+    assert "Teatre clown" in rebuilt
+    assert "Xaranga Magic" in rebuilt
+    assert "agenda-datetime" in rebuilt
+    assert "agenda-location" in rebuilt

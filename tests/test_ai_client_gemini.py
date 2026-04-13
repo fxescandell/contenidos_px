@@ -1,4 +1,6 @@
-from app.services.ai.client import LlmClient
+from unittest.mock import patch
+
+from app.services.ai.client import LlmClient, get_active_llm_client
 from app.api.routes.settings import _format_llm_test_error
 
 
@@ -64,3 +66,48 @@ def test_format_llm_test_error_for_gemini_404_mentions_model_unavailable():
 
     assert "no encuentra el modelo 'gemini-foo'" in message
     assert "Model not found" in message
+
+
+@patch("app.services.ai.client.SettingsResolver.get")
+def test_get_active_llm_client_uses_selected_ocr_vision_connection(mock_get):
+    connections = [
+        {"id": "active", "provider": "openai", "api_key": "active-key", "model": "gpt-4o-mini", "enabled": True, "active": True},
+        {"id": "vision", "provider": "ollama", "api_key": "", "model": "llama3.2-vision", "enabled": True, "active": False},
+    ]
+
+    values = {
+        "llm_connections": connections,
+        "ocr_vision_connection_id": "active",
+        "llm_enabled": True,
+        "llm_api_key": "fallback-key",
+        "llm_provider": "openai",
+        "llm_model": "gpt-4o-mini",
+        "llm_temperature": 0.3,
+    }
+    mock_get.side_effect = lambda key, default=None: values.get(key, default)
+
+    client = get_active_llm_client(use_ocr_vision=True)
+
+    assert client is not None
+    assert client.provider == "openai"
+    assert client.api_key == "active-key"
+
+
+@patch("app.services.ai.client.SettingsResolver.get")
+def test_get_active_llm_client_allows_ollama_for_ocr_vision_without_api_key(mock_get):
+    connections = [
+        {"id": "vision", "provider": "ollama", "api_key": "", "model": "llama3.2-vision", "enabled": True, "active": False},
+    ]
+
+    values = {
+        "llm_connections": connections,
+        "ocr_vision_connection_id": "vision",
+        "llm_enabled": False,
+    }
+    mock_get.side_effect = lambda key, default=None: values.get(key, default)
+
+    client = get_active_llm_client(use_ocr_vision=True)
+
+    assert client is not None
+    assert client.provider == "ollama"
+    assert client.model == "llama3.2-vision"

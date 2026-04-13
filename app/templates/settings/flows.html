@@ -61,15 +61,32 @@
         .mode-section.inactive .mode-section-header { opacity: 0.5; }
         .mode-section.inactive .mode-section-content { display: none; }
 
-        .municipality-group { margin-bottom: 20px; }
-        .municipality-header { display: flex; align-items: center; gap: 8px; padding: 6px 0; margin-bottom: 8px; border-bottom: 1px solid #e0e0e0; }
+        .municipality-group { margin-bottom: 20px; border: 1px solid #e6e6e6; border-radius: 10px; background: #fcfcfd; overflow: hidden; }
+        .municipality-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #e6e6e6; cursor: pointer; background: #f7f8fa; }
+        .municipality-group:not(.expanded) .municipality-header { border-bottom: none; }
+        .municipality-group:not(.expanded) .municipality-body { display: none; }
         .municipality-header .municipality-name { font-weight: 700; font-size: 14px; color: #2c3e50; text-transform: uppercase; }
+        .municipality-header-right { display: inline-flex; align-items: center; gap: 10px; }
+        .municipality-count { font-size: 12px; font-weight: 600; color: #666; background: #fff; border: 1px solid #ddd; padding: 2px 8px; border-radius: 999px; }
+        .municipality-caret { color: #666; font-size: 13px; transition: transform .2s; }
+        .municipality-group.expanded .municipality-caret { transform: rotate(180deg); }
+        .municipality-body { padding: 12px; }
 
         .flow-card { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 12px; overflow: hidden; transition: border-color .3s; }
         .flow-card.disabled-flow { opacity: 0.55; }
         .flow-card-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #f8f9fa; border-bottom: 1px solid #ddd; flex-wrap: wrap; }
         .flow-card-body { padding: 16px; }
         .flow-card-footer { padding: 10px 16px; background: #fafafa; border-top: 1px solid #eee; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .flow-card:not(.expanded) .flow-card-body, .flow-card:not(.expanded) .flow-card-footer { display: none; }
+        .flow-card:not(.expanded) .flow-card-header { border-bottom: none; }
+        .flow-header-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; flex-wrap: wrap; }
+        .flow-header-text { min-width: 0; flex: 1; }
+        .flow-header-title { font-weight: 700; color: #2c3e50; font-size: 14px; margin-bottom: 2px; }
+        .flow-header-summary { font-size: 12px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .flow-config-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #d0d7de; color: #2c3e50; }
+        .flow-config-toggle:hover { background: #f0f7ff; }
+        .flow-config-toggle .caret { display: inline-block; transition: transform .2s; }
+        .flow-card.expanded .flow-config-toggle .caret { transform: rotate(180deg); }
 
         .flow-result { margin-top: 8px; padding: 8px 12px; border-radius: 4px; font-size: 12px; display: none; }
         .flow-result.ok { background: #d4edda; color: #155724; display: block; }
@@ -101,6 +118,32 @@
         .test-result.ok { background: #d4edda; color: #155724; }
         .test-result.err { background: #f8d7da; color: #721c24; }
         .test-result.loading { background: #fff3cd; color: #856404; }
+        .activity-modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: none; align-items: center; justify-content: center; z-index: 999; }
+        .activity-modal-backdrop.open { display: flex; }
+        .activity-modal { width: min(980px, 92vw); max-height: 82vh; background: #fff; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.25); overflow: hidden; display: flex; flex-direction: column; }
+        .activity-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid #e6e6e6; background: #f8fafc; }
+        .activity-modal-title { font-size: 15px; font-weight: 700; color: #1f2937; }
+        .activity-modal-subtitle { font-size: 12px; color: #64748b; margin-top: 3px; }
+        .activity-modal-body { padding: 16px 18px; overflow: auto; background: #fbfcfd; }
+        .activity-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .activity-box { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; }
+        .activity-box-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .03em; margin-bottom: 4px; }
+        .activity-box-value { font-size: 13px; color: #111827; font-weight: 600; word-break: break-word; }
+        .activity-log { background: #0f172a; color: #e5e7eb; border-radius: 10px; padding: 12px; min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; }
+        .activity-log-empty { color: #94a3b8; }
+        .activity-event { padding: 8px 0; border-bottom: 1px solid rgba(148,163,184,0.18); }
+        .activity-event:last-child { border-bottom: none; }
+        .activity-event-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; }
+        .activity-event-time { color: #93c5fd; }
+        .activity-event-stage { color: #fcd34d; font-weight: 700; }
+        .activity-level { display: inline-flex; align-items: center; border-radius: 999px; padding: 1px 8px; font-size: 10px; font-weight: 700; }
+        .activity-level.INFO { background: rgba(59,130,246,0.18); color: #93c5fd; }
+        .activity-level.WARNING { background: rgba(245,158,11,0.2); color: #fcd34d; }
+        .activity-level.ERROR, .activity-level.CRITICAL { background: rgba(239,68,68,0.2); color: #fca5a5; }
+        .activity-event-message { color: #e5e7eb; white-space: pre-wrap; }
+        .activity-event-payload { color: #94a3b8; margin-top: 3px; white-space: pre-wrap; }
+        .activity-modal-actions { display: flex; align-items: center; gap: 8px; }
+        @media (max-width: 800px) { .activity-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     </style>
 </head>
 <body>
@@ -151,6 +194,30 @@
                     <div id="bulk-result-local" class="flow-result" style="margin-top:10px;"></div>
                 </div>
             </div>
+
+            <div id="activity-modal-backdrop" class="activity-modal-backdrop" onclick="closeActivityModal(event)">
+                <div class="activity-modal" onclick="event.stopPropagation()">
+                    <div class="activity-modal-header">
+                        <div>
+                            <div id="activity-modal-title" class="activity-modal-title">Actividad del flujo</div>
+                            <div id="activity-modal-subtitle" class="activity-modal-subtitle">Esperando ejecucion...</div>
+                        </div>
+                        <div class="activity-modal-actions">
+                            <a id="activity-batch-link" class="btn btn-test btn-sm" href="#" target="_blank" style="display:none; text-decoration:none;">Abrir lote</a>
+                            <button type="button" class="btn btn-sm" onclick="closeActivityModal(event)">Cerrar</button>
+                        </div>
+                    </div>
+                    <div class="activity-modal-body">
+                        <div class="activity-summary">
+                            <div class="activity-box"><div class="activity-box-label">Estado</div><div id="activity-status" class="activity-box-value">Esperando</div></div>
+                            <div class="activity-box"><div class="activity-box-label">Lote</div><div id="activity-batch" class="activity-box-value">-</div></div>
+                            <div class="activity-box"><div class="activity-box-label">Actualizado</div><div id="activity-updated" class="activity-box-value">-</div></div>
+                            <div class="activity-box"><div class="activity-box-label">Eventos</div><div id="activity-count" class="activity-box-value">0</div></div>
+                        </div>
+                        <div id="activity-log" class="activity-log"><div class="activity-log-empty">Todavia no hay eventos para mostrar.</div></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -162,6 +229,9 @@
 
         let flows = [];
         let currentGlobalMode = 'smb';
+        const expandedFlowIds = new Set();
+        const collapsedMunicipalityKeys = new Set();
+        const activityState = { flowId: null, batchId: null, startedAfter: '', timer: null, lastTerminal: false };
 
         function escapeHtml(s) {
             if (!s) return '';
@@ -209,15 +279,25 @@
 
         function renderFlowCard(flow) {
             const disabledClass = flow.enabled === false ? 'disabled-flow' : '';
+            const expandedClass = expandedFlowIds.has(flow.id) ? 'expanded' : '';
+            const title = flow.name || ((MUNICIPALITY_LABELS[flow.municipality] || flow.municipality || 'Municipio') + ' · ' + (CATEGORY_LABELS[flow.category] || flow.category || 'Categoria'));
+            const sourceSummary = flow.source_folder ? flow.source_folder : 'Sin carpeta configurada';
             let html = '';
-            html += `<div class="flow-card ${disabledClass}" id="flow-${flow.id}">`;
+            html += `<div class="flow-card ${disabledClass} ${expandedClass}" id="flow-${flow.id}">`;
             html += `<div class="flow-card-header">`;
+            html += `<div class="flow-header-main">`;
             html += `<div class="toggle-inline"><label class="toggle-switch"><input type="checkbox" ${flow.enabled !== false ? 'checked' : ''} onchange="toggleEnabled('${flow.id}', this.checked)"><span class="slider"></span></label><span style="font-size:12px;">Activo</span></div>`;
-            html += `<input type="text" value="${escapeHtml(flow.name || '')}" onchange="updateField('${flow.id}','name',this.value)" placeholder="Nombre del flujo" style="flex:1; max-width:280px;">`;
+            html += `<div class="flow-header-text">`;
+            html += `<div class="flow-header-title">${escapeHtml(title)}</div>`;
+            html += `<div class="flow-header-summary">${escapeHtml(MUNICIPALITY_LABELS[flow.municipality] || flow.municipality || '')} · ${escapeHtml(CATEGORY_LABELS[flow.category] || flow.category || '')} · ${escapeHtml(sourceSummary)}</div>`;
+            html += `</div>`;
             html += statusBadge(flow);
             html += lastRunInfo(flow);
             html += `</div>`;
+            html += `<button type="button" class="btn btn-sm flow-config-toggle" onclick="toggleFlowExpanded('${flow.id}')"><span class="caret">▾</span>${expandedFlowIds.has(flow.id) ? 'Ocultar configuracion' : 'Configurar'}</button>`;
+            html += `</div>`;
             html += `<div class="flow-card-body">`;
+            html += `<div class="form-group"><label>Nombre del flujo</label><input type="text" value="${escapeHtml(flow.name || '')}" onchange="updateField('${flow.id}','name',this.value); renderFlows();" placeholder="Nombre del flujo"></div>`;
             html += `<div class="input-row">`;
             html += `<div class="form-group"><label>Municipio</label><select onchange="onMunicipalityChange('${flow.id}', this.value)">${municipalityOptions(flow.municipality)}</select></div>`;
             html += `<div class="form-group"><label>Categoria</label><select onchange="onCategoryChange('${flow.id}', this.value)">${categoryOptions(flow.category)}</select></div>`;
@@ -237,6 +317,7 @@
             html += `<button class="btn btn-test btn-sm" onclick="testFlowPath('${flow.id}', true)" title="Escribe el archivo de test pero no lo borra">Test (dejar archivo)</button>`;
             html += `<button class="btn btn-test btn-sm" onclick="runFlow('${flow.id}')">Ejecutar</button>`;
             html += `<button class="btn btn-teal btn-sm" onclick="exportFlow('${flow.id}')">Ejecutar + Exportar</button>`;
+            html += `<button class="btn btn-test btn-sm" onclick="openActivityModal('${flow.id}')">Ver actividad</button>`;
             html += `<button class="btn btn-danger btn-sm" onclick="clearLastBatch('${flow.id}')" title="Elimina el ultimo lote procesado para poder volver a ejecutar">Limpiar lote</button>`;
             html += `<button class="btn btn-danger btn-sm" onclick="deleteFlow('${flow.id}')">Eliminar</button>`;
             html += `</div>`;
@@ -254,8 +335,8 @@
             document.getElementById('smb-count').textContent = smbFlows.length;
             document.getElementById('local-count').textContent = localFlows.length;
 
-            smbContainer.innerHTML = renderGroupedFlows(smbFlows);
-            localContainer.innerHTML = renderGroupedFlows(localFlows);
+            smbContainer.innerHTML = renderGroupedFlows(smbFlows, 'smb');
+            localContainer.innerHTML = renderGroupedFlows(localFlows, 'local');
 
             const smbSection = document.getElementById('flows-smb');
             const localSection = document.getElementById('flows-local');
@@ -263,7 +344,7 @@
             localSection.classList.toggle('inactive', currentGlobalMode === 'smb');
         }
 
-        function renderGroupedFlows(flowsList) {
+        function renderGroupedFlows(flowsList, modeKey) {
             if (flowsList.length === 0) {
                 return '<div class="empty-state">No hay flujos en esta seccion.</div>';
             }
@@ -277,19 +358,148 @@
             let html = '';
             MUNICIPALITIES.forEach(m => {
                 if (grouped[m].length === 0) return;
-                html += `<div class="municipality-group">`;
-                html += `<div class="municipality-header"><span class="municipality-name">${MUNICIPALITY_LABELS[m] || m}</span></div>`;
+                const municipalityKey = `${modeKey}:${m}`;
+                const expandedClass = collapsedMunicipalityKeys.has(municipalityKey) ? '' : 'expanded';
+                html += `<div class="municipality-group ${expandedClass}">`;
+                html += `<div class="municipality-header" onclick="toggleMunicipalityGroup('${municipalityKey}')">`;
+                html += `<span class="municipality-name">${MUNICIPALITY_LABELS[m] || m}</span>`;
+                html += `<span class="municipality-header-right"><span class="municipality-count">${grouped[m].length}</span><span class="municipality-caret">▾</span></span>`;
+                html += `</div>`;
+                html += `<div class="municipality-body">`;
                 grouped[m].forEach(flow => {
                     html += renderFlowCard(flow);
                 });
+                html += `</div>`;
                 html += `</div>`;
             });
             return html;
         }
 
+        function toggleMunicipalityGroup(key) {
+            if (collapsedMunicipalityKeys.has(key)) {
+                collapsedMunicipalityKeys.delete(key);
+            } else {
+                collapsedMunicipalityKeys.add(key);
+            }
+            renderFlows();
+        }
+
         function updateField(id, field, value) {
             const flow = flows.find(f => f.id === id);
             if (flow) flow[field] = value;
+        }
+
+        function toggleFlowExpanded(id) {
+            if (expandedFlowIds.has(id)) {
+                expandedFlowIds.delete(id);
+            } else {
+                expandedFlowIds.add(id);
+            }
+            renderFlows();
+        }
+
+        function openActivityModal(flowId, options = {}) {
+            activityState.flowId = flowId;
+            activityState.batchId = options.batchId || null;
+            activityState.startedAfter = options.startedAfter || '';
+            activityState.lastTerminal = false;
+
+            const flow = flows.find(f => f.id === flowId);
+            document.getElementById('activity-modal-title').textContent = 'Actividad del flujo';
+            document.getElementById('activity-modal-subtitle').textContent = flow ? `${flow.name || (CATEGORY_LABELS[flow.category] || flow.category)} · ${MUNICIPALITY_LABELS[flow.municipality] || flow.municipality}` : 'Procesando...';
+            document.getElementById('activity-status').textContent = 'Esperando';
+            document.getElementById('activity-batch').textContent = '-';
+            document.getElementById('activity-updated').textContent = '-';
+            document.getElementById('activity-count').textContent = '0';
+            document.getElementById('activity-log').innerHTML = '<div class="activity-log-empty">Esperando eventos del proceso...</div>';
+            const batchLink = document.getElementById('activity-batch-link');
+            batchLink.style.display = 'none';
+            batchLink.href = '#';
+            document.getElementById('activity-modal-backdrop').classList.add('open');
+            startActivityPolling();
+        }
+
+        function closeActivityModal(event) {
+            if (event) event.stopPropagation();
+            if (activityState.timer) {
+                clearInterval(activityState.timer);
+                activityState.timer = null;
+            }
+            document.getElementById('activity-modal-backdrop').classList.remove('open');
+        }
+
+        function startActivityPolling() {
+            if (activityState.timer) clearInterval(activityState.timer);
+            fetchActivityEvents();
+            activityState.timer = setInterval(fetchActivityEvents, 1500);
+        }
+
+        async function fetchActivityEvents() {
+            if (!activityState.flowId && !activityState.batchId) return;
+            let url = '';
+            if (activityState.batchId) {
+                url = '/api/v1/flows/batches/' + activityState.batchId + '/events?limit=300';
+            } else {
+                url = '/api/v1/flows/' + activityState.flowId + '/activity?limit=300';
+                if (activityState.startedAfter) {
+                    url += '&started_after=' + encodeURIComponent(activityState.startedAfter);
+                }
+            }
+
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                if (!res.ok || data.success === false) return;
+                renderActivityModal(data.batch, data.events || []);
+            } catch (_e) {
+                // keep last visible state
+            }
+        }
+
+        function renderActivityModal(batch, events) {
+            const statusEl = document.getElementById('activity-status');
+            const batchEl = document.getElementById('activity-batch');
+            const updatedEl = document.getElementById('activity-updated');
+            const countEl = document.getElementById('activity-count');
+            const logEl = document.getElementById('activity-log');
+            const batchLink = document.getElementById('activity-batch-link');
+
+            if (!batch) {
+                statusEl.textContent = 'Esperando lote';
+                batchEl.textContent = '-';
+                updatedEl.textContent = '-';
+                countEl.textContent = '0';
+                logEl.innerHTML = '<div class="activity-log-empty">Aun no se ha creado el lote o no hay eventos visibles.</div>';
+                batchLink.style.display = 'none';
+                return;
+            }
+
+            activityState.batchId = batch.id;
+            statusEl.textContent = batch.status || 'UNKNOWN';
+            batchEl.textContent = batch.external_name || batch.id;
+            updatedEl.textContent = formatDateTime(batch.updated_at || batch.finished_at || batch.created_at);
+            countEl.textContent = String(events.length || 0);
+            batchLink.href = '/batch/' + batch.id;
+            batchLink.style.display = 'inline-flex';
+
+            if (!events.length) {
+                logEl.innerHTML = '<div class="activity-log-empty">No hay eventos registrados todavia para este lote.</div>';
+            } else {
+                logEl.innerHTML = events.map(event => {
+                    const payloadText = event.payload && Object.keys(event.payload).length ? `<div class="activity-event-payload">${escapeHtml(JSON.stringify(event.payload, null, 2))}</div>` : '';
+                    return `<div class="activity-event"><div class="activity-event-meta"><span class="activity-event-time">${escapeHtml(formatDateTime(event.created_at))}</span><span class="activity-level ${escapeHtml(event.level || 'INFO')}">${escapeHtml(event.level || 'INFO')}</span><span class="activity-event-stage">${escapeHtml(event.stage || '-')}</span><span>${escapeHtml(event.event_type || '')}</span></div><div class="activity-event-message">${escapeHtml(event.message || '')}</div>${payloadText}</div>`;
+                }).join('');
+                logEl.scrollTop = logEl.scrollHeight;
+            }
+
+            activityState.lastTerminal = ['FINISHED', 'FAILED', 'REVIEW_REQUIRED'].includes(batch.status || '');
+        }
+
+        function formatDateTime(value) {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return value;
+            return date.toLocaleString();
         }
 
         function onMunicipalityChange(id, value) {
@@ -438,6 +648,10 @@
             } catch (e) {
                 flows = [];
             }
+            const validIds = new Set(flows.map(f => f.id));
+            [...expandedFlowIds].forEach(id => {
+                if (!validIds.has(id)) expandedFlowIds.delete(id);
+            });
             renderFlows();
         }
 
@@ -471,10 +685,15 @@
             const el = document.getElementById('result-' + id);
             el.className = 'flow-result loading';
             el.textContent = 'Ejecutando flujo...';
+            openActivityModal(id, { startedAfter: new Date().toISOString() });
             try {
                 const res = await fetch('/api/v1/flows/' + id + '/run', { method: 'POST' });
                 const data = await res.json();
                 if (res.ok && data.success !== false) {
+                    if (data.batch_id) {
+                        activityState.batchId = data.batch_id;
+                        fetchActivityEvents();
+                    }
                     el.className = 'flow-result ok';
                     let html = '<span class="status-dot green"></span><strong>Ejecutado</strong>';
                     if (data.summary) html += ' - ' + escapeHtml(data.summary);
@@ -482,6 +701,10 @@
                     el.innerHTML = html;
                     await loadFlows();
                 } else {
+                    if (data.batch_id) {
+                        activityState.batchId = data.batch_id;
+                        fetchActivityEvents();
+                    }
                     el.className = 'flow-result err';
                     el.innerHTML = '<span class="status-dot red"></span>' + escapeHtml(data.detail || data.message || data.error || 'Error al ejecutar.');
                 }
@@ -495,6 +718,7 @@
             const el = document.getElementById('result-' + id);
             el.className = 'flow-result loading';
             el.textContent = 'Ejecutando y exportando...';
+            openActivityModal(id, { startedAfter: new Date().toISOString() });
             try {
                 const res = await fetch('/api/v1/flows/' + id + '/export', { method: 'POST' });
                 const raw = await res.text();
@@ -505,6 +729,10 @@
                     data = { success: false, message: raw || 'Respuesta invalida del servidor' };
                 }
                 if (res.ok && data.success !== false) {
+                    if (data.batch_id) {
+                        activityState.batchId = data.batch_id;
+                        fetchActivityEvents();
+                    }
                     el.className = 'flow-result ok';
                     let html = '<span class="status-dot green"></span><strong>Ejecutado + Exportado</strong>';
                     if (data.summary) html += ' - ' + escapeHtml(data.summary);
@@ -513,6 +741,10 @@
                     el.innerHTML = html;
                     await loadFlows();
                 } else {
+                    if (data.batch_id) {
+                        activityState.batchId = data.batch_id;
+                        fetchActivityEvents();
+                    }
                     el.className = 'flow-result err';
                     el.innerHTML = '<span class="status-dot red"></span>' + escapeHtml(data.detail || data.message || data.error || 'Error al ejecutar/exportar.');
                 }
@@ -556,6 +788,7 @@
                 });
                 const data = await res.json();
                 if (res.ok) {
+                    expandedFlowIds.add(data.id);
                     await loadFlows();
                 } else {
                     alert('Error al crear flujo: ' + (data.detail || data.message || 'Desconocido'));

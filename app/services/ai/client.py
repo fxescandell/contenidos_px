@@ -20,7 +20,7 @@ class LlmClient:
 
     def chat(self, prompt: str, system: str = None, images: Optional[List[Dict]] = None,
            max_tokens: int = 4000) -> str:
-        if not self.api_key:
+        if self.provider.lower() != "ollama" and not self.api_key:
             raise ValueError("API key del LLM no configurada. Configurala en la seccion AI de configuracion.")
 
         messages = []
@@ -44,6 +44,8 @@ class LlmClient:
             return self._call_openai_compatible(messages, max_tokens)
         if "gemini" in self.provider.lower():
             return self._call_gemini(messages, max_tokens)
+        if "ollama" in self.provider.lower():
+            return self._call_ollama(messages, max_tokens)
 
         raise ValueError(f"Proveedor LLM no soportado: {self.provider}")
 
@@ -156,11 +158,111 @@ class LlmClient:
         mime_type, _ = mimetypes.guess_type(parsed.path)
         return {"file_data": {"mime_type": mime_type or "image/jpeg", "file_uri": url}}
 
+    def _call_ollama(self, messages: List[Dict], max_tokens: int) -> str:
+        import httpx
 
-def get_active_llm_client() -> Optional[LlmClient]:
+        base_url = self.base_url or "http://localhost:11434"
+        url = f"{base_url.rstrip('/')}/api/chat"
+        payload = {
+            "model": self.model,
+            "messages": self._ollama_messages_from_chat(messages),
+            "stream": False,
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": max_tokens,
+            },
+        }
+
+        resp = httpx.post(url, json=payload, headers={"content-type": "application/json"}, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("message", {}).get("content", "")
+
+    def _ollama_messages_from_chat(self, messages: List[Dict]) -> List[Dict[str, Any]]:
+        ollama_messages = []
+        for message in messages:
+            content = message.get("content", "")
+            text_parts = []
+            images = []
+
+            if isinstance(content, list):
+                for item in content:
+                    if item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                    elif item.get("type") == "image_url":
+                        encoded_image = self._ollama_image_data(item.get("image_url", {}).get("url", ""))
+                        if encoded_image:
+                            images.append(encoded_image)
+            else:
+                text_parts.append(str(content or ""))
+
+            ollama_message = {
+                "role": message.get("role", "user"),
+                "content": "\n".join(part for part in text_parts if part).strip(),
+            }
+            if images:
+                ollama_message["images"] = images
+            ollama_messages.append(ollama_message)
+
+        return ollama_messages
+
+    def _ollama_image_data(self, url: str) -> Optional[str]:
+        if not url:
+            return None
+        if url.startswith("data:"):
+            return url.partition(",")[2] or None
+        parsed = urlparse(url)
+        if parsed.scheme in {"http", "https"}:
+            return None
+        if not parsed.path:
+            return None
+        try:
+            with open(parsed.path, "rb") as f:
+                import base64
+                return base64.b64encode(f.read()).decode("utf-8")
+        except Exception:
+            return None
+
+
+def _load_configured_connections() -> List[Dict[str, Any]]:
+    raw_connections = SettingsResolver.get("llm_connections", "[]")
+    try:
+        connections = json.loads(raw_connections) if isinstance(raw_connections, str) else raw_connections
+    except Exception:
+        connections = []
+    return connections if isinstance(connections, list) else []
+
+
+def _build_client_from_connection(connection: Dict[str, Any]) -> LlmClient:
+    return LlmClient(
+        provider=connection.get("provider"),
+        api_key=connection.get("api_key"),
+        model=connection.get("model"),
+        temperature=connection.get("temperature"),
+    )
+
+
+def get_active_llm_client(use_ocr_vision: bool = False) -> Optional[LlmClient]:
+    connections = _load_configured_connections()
+
+    if use_ocr_vision:
+        connection_id = SettingsResolver.get("ocr_vision_connection_id")
+        if connection_id:
+            selected = next((c for c in connections if c.get("id") == connection_id and c.get("enabled")), None)
+            if selected and (selected.get("api_key") or str(selected.get("provider", "")).lower() == "ollama"):
+                return _build_client_from_connection(selected)
+
     enabled = SettingsResolver.get("llm_enabled")
     if not enabled:
         return None
+
+    active = next((
+        c for c in connections
+        if c.get("active") and c.get("enabled") and (c.get("api_key") or str(c.get("provider", "")).lower() == "ollama")
+    ), None)
+    if active:
+        return _build_client_from_connection(active)
+
     api_key = SettingsResolver.get("llm_api_key")
     if not api_key:
         return None

@@ -104,6 +104,19 @@ def test_build_strict_payload_uses_exact_seo_fields_without_polluting_empty_temp
     assert payload["article-destacat"] == "1"
 
 
+def test_build_strict_payload_populates_agenda_activities_field():
+    example_payload = {
+        "activitats": "",
+    }
+
+    activities = [{"title": "Concert", "image_ref": "https://example.com/concert.jpg"}]
+    payload = build_strict_payload_from_example(example_payload, {
+        "activities": activities,
+    })
+
+    assert payload["activitats"] == activities
+
+
 def test_normalize_strict_payload_exact_fields_repairs_seo_and_fixed_template_fields():
     payload = {
         "post_content": "incorrecte",

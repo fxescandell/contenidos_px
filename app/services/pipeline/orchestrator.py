@@ -9,7 +9,7 @@ from app.db.models import (
     SourceBatch, SourceFile, ContentCandidate, CanonicalContent
 )
 from app.core.states import BatchStatus, CandidateStatus
-from app.core.enums import EventLevel
+from app.core.enums import EventLevel, ExtractionMethod
 
 from app.services.ingestion.service import IngestionService
 from app.services.grouping.orchestrator import GroupingOrchestrator
@@ -104,13 +104,26 @@ class PipelineOrchestrator:
                 processed_images = self.image_processor.process_images(candidate, imgs)
                 
                 # 7. Editorial
-                combined_text = "\n".join([e.cleaned_text for e in extractions if str(e.cleaned_text or "").strip()])
+                doc_text = "\n".join([
+                    e.cleaned_text for e in extractions
+                    if str(e.cleaned_text or "").strip() and e.method != ExtractionMethod.OCR_IMAGE
+                ])
+                vision_text = "\n".join([
+                    e.cleaned_text for e in extractions
+                    if str(e.cleaned_text or "").strip() and e.method == ExtractionMethod.OCR_IMAGE
+                ])
+                combined_text = doc_text or vision_text
+                event_logger.log(db, EventLevel.INFO, "FINAL_REVIEW_STARTED", "EDITORIAL", "Iniciando revision final de contenido, SEO y ortografia", batch_id=batch.id, candidate_id=candidate.id)
                 editorial = self.editorial_builder.build_editorial_content(
                     classification,
                     combined_text,
                     processed_images,
-                    {"featured_selection_images": processed_images},
+                    {
+                        "featured_selection_images": processed_images,
+                        "vision_context_text": vision_text,
+                    },
                 )
+                event_logger.log(db, EventLevel.INFO, "FINAL_REVIEW_COMPLETED", "EDITORIAL", "Revision final completada", batch_id=batch.id, candidate_id=candidate.id, payload={"notes": len(editorial.structured_fields.get("final_review_notes", []))})
                 
                 # Update candidate with featured image
                 if editorial.featured_image_ref:

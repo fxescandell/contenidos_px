@@ -1,24 +1,65 @@
 import os
-from typing import List
+from typing import List, Optional
 from uuid import UUID
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.db.repositories.flow_repos import flow_repo
+from app.db.models import ProcessingEvent
+from app.db.repositories.all_repos import source_batch_repo
 from app.schemas.flows import FlowCreate, FlowUpdate, FlowResponse, FlowRunRequest
 from app.config.settings import settings
 from app.services.pipeline.flow_service import FlowService
+from app.services.pipeline.events import event_logger
 from app.services.path_filters import is_ignored_source_folder
 from app.services.export.flow_export import FlowExporter
 from app.services.settings.service import SettingsResolver
 from app.core.settings_enums import SettingType
-from datetime import datetime
+from app.core.enums import EventLevel
 
 router = APIRouter(prefix="/api/v1/flows", tags=["flows"])
 
 MUNICIPALITIES = ["BERGUEDA", "CERDANYA", "MARESME"]
 CATEGORIES = ["AGENDA", "NOTICIES", "ESPORTS", "TURISME_ACTIU", "NENS_I_JOVES", "CULTURA", "GASTRONOMIA", "CONSELLS", "ENTREVISTES"]
+
+
+def _serialize_processing_event(event: ProcessingEvent) -> dict:
+    return {
+        "id": str(event.id),
+        "level": event.level.value if event.level else "INFO",
+        "event_type": event.event_type,
+        "stage": event.stage,
+        "message": event.message,
+        "payload": event.payload_json or {},
+        "batch_id": str(event.batch_id) if event.batch_id else None,
+        "candidate_id": str(event.candidate_id) if event.candidate_id else None,
+        "created_at": event.created_at.isoformat() if event.created_at else None,
+    }
+
+
+def _serialize_batch_activity(batch) -> dict:
+    return {
+        "id": str(batch.id),
+        "external_name": batch.external_name,
+        "status": batch.status.value if batch.status else "UNKNOWN",
+        "requires_review": batch.requires_review,
+        "review_reason": batch.review_reason,
+        "error_message": batch.error_message,
+        "created_at": batch.created_at.isoformat() if batch.created_at else None,
+        "started_at": batch.started_at.isoformat() if batch.started_at else None,
+        "finished_at": batch.finished_at.isoformat() if batch.finished_at else None,
+        "updated_at": batch.updated_at.isoformat() if batch.updated_at else None,
+    }
+
+
+def _datetime_to_timestamp(value: Optional[datetime]) -> float:
+    if value is None:
+        return 0.0
+    if value.tzinfo is None:
+        return value.replace(tzinfo=datetime.now().astimezone().tzinfo).timestamp()
+    return value.timestamp()
 
 @router.get("", response_model=List[FlowResponse])
 def list_flows(db: Session = Depends(get_db)):
@@ -179,6 +220,82 @@ def run_flow(flow_id: UUID, db: Session = Depends(get_db)):
         })
 
     return result
+
+
+@router.get("/batches/{batch_id}/events")
+def get_batch_events(batch_id: UUID, limit: int = Query(200, ge=1, le=500), db: Session = Depends(get_db)):
+    batch = source_batch_repo.get_by_id(db, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Lote no encontrado")
+
+    events = (
+        db.query(ProcessingEvent)
+        .filter(ProcessingEvent.batch_id == batch_id)
+        .order_by(ProcessingEvent.created_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "success": True,
+        "batch": _serialize_batch_activity(batch),
+        "events": [_serialize_processing_event(event) for event in events],
+    }
+
+
+@router.get("/{flow_id}/activity")
+def get_flow_activity(
+    flow_id: UUID,
+    started_after: str = Query(""),
+    limit: int = Query(200, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+
+    parsed_started_after = None
+    if started_after:
+        try:
+            parsed_started_after = datetime.fromisoformat(started_after.replace("Z", "+00:00"))
+        except ValueError:
+            parsed_started_after = None
+
+    batches = source_batch_repo.get_all(db)
+    matching_batches = [
+        batch for batch in batches
+        if (batch.municipality_hint or "").upper() == flow.municipality.upper()
+        and (batch.category_hint or "").upper() == flow.category.upper()
+    ]
+
+    if parsed_started_after is not None:
+        matching_batches = [
+            batch for batch in matching_batches
+            if batch.created_at and _datetime_to_timestamp(batch.created_at) >= _datetime_to_timestamp(parsed_started_after)
+        ]
+
+    if not matching_batches:
+        return {"success": True, "batch": None, "events": []}
+
+    latest_batch = sorted(
+        matching_batches,
+        key=lambda batch: _datetime_to_timestamp(batch.created_at),
+        reverse=True,
+    )[0]
+
+    events = (
+        db.query(ProcessingEvent)
+        .filter(ProcessingEvent.batch_id == latest_batch.id)
+        .order_by(ProcessingEvent.created_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "success": True,
+        "batch": _serialize_batch_activity(latest_batch),
+        "events": [_serialize_processing_event(event) for event in events],
+    }
 
 @router.post("/{flow_id}/test-path")
 def test_flow_path(flow_id: UUID, db: Session = Depends(get_db), keep: bool = Query(False)):
@@ -391,22 +508,35 @@ def export_flow(flow_id: UUID, db: Session = Depends(get_db)):
         result = flow_service.run_flow(flow)
 
         if not result.get("success"):
-            return {"success": False, "message": f"Error en procesamiento: {result.get('message', '')}"}
+            return {"success": False, "message": f"Error en procesamiento: {result.get('message', '')}", "batch_id": result.get("batch_id")}
+
+        batch_id = result.get("batch_id")
+        batch_uuid = UUID(batch_id) if batch_id else None
+        if batch_uuid:
+            event_logger.log(db, EventLevel.INFO, "FLOW_EXPORT_STARTED", "EXPORT", "Iniciando exportacion del lote", batch_id=batch_uuid)
 
         exporter = FlowExporter()
         image_uploads = result.get("image_uploads", []) or []
         if image_uploads:
+            if batch_uuid:
+                event_logger.log(db, EventLevel.INFO, "IMAGE_UPLOAD_STARTED", "EXPORT", f"Subiendo {len(image_uploads)} imagen(es)", batch_id=batch_uuid)
             images_ok, images_msg, _uploaded = exporter.upload_image_assets(flow.municipality, image_uploads)
             if not images_ok:
+                if batch_uuid:
+                    event_logger.log(db, EventLevel.ERROR, "IMAGE_UPLOAD_FAILED", "EXPORT", images_msg, batch_id=batch_uuid)
                 flow_repo.update(db, db_obj=flow, obj_in={
                     "last_run_at": datetime.now(),
                     "last_run_status": "ERROR",
                     "last_run_summary": f"{result.get('message', '')} | {images_msg}"[:255]
                 })
-                return {"success": False, "message": f"Error subiendo imagenes: {images_msg}"}
+                return {"success": False, "message": f"Error subiendo imagenes: {images_msg}", "batch_id": batch_id}
+            if batch_uuid:
+                event_logger.log(db, EventLevel.INFO, "IMAGE_UPLOAD_COMPLETED", "EXPORT", images_msg, batch_id=batch_uuid)
 
         json_content = flow_service.generate_json(flow, result.get("articles", []), result.get("export_payload"))
         csv_content = flow_service.generate_csv(flow, result.get("articles", []), result.get("export_payload"))
+        if batch_uuid:
+            event_logger.log(db, EventLevel.INFO, "EXPORT_FILES_BUILT", "EXPORT", "JSON y CSV generados en memoria", batch_id=batch_uuid)
 
         upload_ok, upload_msg = exporter.upload_to_outfolder(flow.municipality, flow.output_filename, json_content, content_label="JSON")
         if csv_content:
@@ -422,13 +552,23 @@ def export_flow(flow_id: UUID, db: Session = Depends(get_db)):
             "last_run_status": "EXPORTED" if upload_ok else "ERROR",
             "last_run_summary": f"{result.get('message', '')} | {upload_msg}"
         })
+        if batch_uuid:
+            event_logger.log(
+                db,
+                EventLevel.INFO if upload_ok else EventLevel.ERROR,
+                "FLOW_EXPORT_COMPLETED" if upload_ok else "FLOW_EXPORT_FAILED",
+                "EXPORT",
+                upload_msg,
+                batch_id=batch_uuid,
+            )
 
         return {
             "success": upload_ok,
             "message": result.get("message", ""),
             "upload": upload_msg,
             "articles_count": len(result.get("articles", [])),
-            "classification": result.get("classification")
+            "classification": result.get("classification"),
+            "batch_id": batch_id,
         }
     except Exception as e:
         try:

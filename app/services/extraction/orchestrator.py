@@ -111,7 +111,7 @@ class ImageOcrExtractor(BaseExtractor):
             import base64
             from app.services.ai.client import get_active_llm_client
 
-            client = get_active_llm_client()
+            client = get_active_llm_client(use_ocr_vision=True)
             if not client:
                 return self._mock_extract(file_path, file_id)
 

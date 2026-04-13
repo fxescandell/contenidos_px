@@ -48,6 +48,16 @@
         .conn-card.active-conn { border-color: #28a745; border-width: 2px; }
         .conn-header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #f8f9fa; border-bottom: 1px solid #ddd; }
         .conn-header input[type="text"] { font-size: 15px; font-weight: 600; }
+        .conn-card:not(.expanded) .conn-body { display: none; }
+        .conn-card:not(.expanded) .conn-header { border-bottom: none; }
+        .conn-header-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+        .conn-header-text { min-width: 0; flex: 1; }
+        .conn-header-title { font-size: 14px; font-weight: 700; color: #2c3e50; margin-bottom: 2px; }
+        .conn-header-summary { font-size: 12px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .conn-config-toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #d0d7de; color: #2c3e50; }
+        .conn-config-toggle:hover { background: #f0f7ff; }
+        .conn-config-toggle .caret { display: inline-block; transition: transform .2s; }
+        .conn-card.expanded .conn-config-toggle .caret { transform: rotate(180deg); }
         .conn-header .star { cursor: pointer; font-size: 20px; color: #ccc; transition: color .2s; }
         .conn-header .star.active { color: #f0ad4e; }
         .conn-body { padding: 16px; }
@@ -159,6 +169,10 @@
 
         let connections = {{ connections_json | safe }};
         const savedVisionConnId = "{{ values.ocr_vision_connection_id or '' }}";
+        const expandedConnectionIds = new Set();
+        connections.forEach(c => {
+            if (c.active) expandedConnectionIds.add(c.id);
+        });
 
         function escapeHtml(s) {
             if (!s) return '';
@@ -170,7 +184,7 @@
         }
 
         function addConnection() {
-            connections.push({
+            const newConnection = {
                 id: crypto.randomUUID(),
                 name: "Nueva conexion",
                 provider: "openai",
@@ -180,12 +194,15 @@
                 enabled: true,
                 active: !connections.some(c => c.active),
                 models: []
-            });
+            };
+            connections.push(newConnection);
+            expandedConnectionIds.add(newConnection.id);
             renderConnections();
         }
 
         function removeConnection(i) {
             const wasActive = connections[i].active;
+            expandedConnectionIds.delete(connections[i].id);
             connections.splice(i, 1);
             if (wasActive && connections.length > 0) {
                 connections[0].active = true;
@@ -215,6 +232,24 @@
                 connections[i].model = '';
             }
             syncJsonInput();
+        }
+
+        function toggleConnectionExpanded(id) {
+            if (expandedConnectionIds.has(id)) {
+                expandedConnectionIds.delete(id);
+            } else {
+                expandedConnectionIds.add(id);
+            }
+            renderConnections();
+        }
+
+        function connectionHasVision(c, i) {
+            if (c.force_vision === true) return true;
+            if (Array.isArray(c.models) && c.models.some(m => m.id === c.model && m.vision)) return true;
+            const sel = document.getElementById('model-' + i);
+            if (!sel) return false;
+            const opt = sel.selectedOptions[0];
+            return !!(opt && opt.dataset.vision === 'true');
         }
 
         function toggleApiKeyVisibility(i) {
@@ -285,8 +320,7 @@
             const sel = document.getElementById('model-' + i);
             const badge = document.getElementById('vision-badge-' + i);
             if (!sel || !badge) return;
-            const opt = sel.selectedOptions[0];
-            if (opt && opt.dataset.vision === 'true') {
+            if (connectionHasVision(connections[i], i)) {
                 badge.className = 'vision-badge yes';
                 badge.textContent = 'Vision';
             } else {
@@ -339,22 +373,13 @@
             if (!sel) return;
             const currentVal = sel.value;
             sel.innerHTML = '<option value="">-- Selecciona una conexion con vision --</option>';
-            connections.forEach(c => {
+            connections.forEach((c, i) => {
                 if (!c.enabled || !c.model) return;
-                const hasVision = c.models.some(m => m.id === c.model && m.vision);
-                if (!hasVision) {
-                    const opt = document.getElementById('model-' + connections.indexOf(c));
-                    if (opt) {
-                        const selectedOpt = opt.selectedOptions[0];
-                        if (selectedOpt && selectedOpt.dataset.vision === 'true') {
-                            // Has vision from current selection
-                        } else return;
-                    } else return;
-                }
+                if (!connectionHasVision(c, i)) return;
                 const prov = PROVIDERS[c.provider]?.label || c.provider;
                 const opt = document.createElement('option');
                 opt.value = c.id;
-                opt.textContent = `${c.name} (${prov} / ${c.model})`;
+                opt.textContent = `${c.name} (${prov} / ${c.model}${c.force_vision === true ? ' / vision manual' : ''})`;
                 sel.appendChild(opt);
             });
             sel.value = currentVal;
@@ -385,20 +410,33 @@
             connections.forEach((c, i) => {
                 const prov = PROVIDERS[c.provider] || { label: c.provider, color: '#999' };
                 const isActive = c.active && c.enabled;
-                const cardClass = (!c.enabled ? 'disabled-conn' : '') + (isActive ? ' active-conn' : '');
+                const cardClass = (!c.enabled ? 'disabled-conn' : '') + (isActive ? ' active-conn' : '') + (expandedConnectionIds.has(c.id) ? ' expanded' : '');
+                const modelSummary = c.model || 'Sin modelo';
+                const visionSummary = connectionHasVision(c, i) ? 'Vision' : 'Solo texto';
+                const title = c.name || (prov.label || c.provider || 'Conexion');
                 container.innerHTML += `
                 <div class="conn-card ${cardClass}" id="conn-${i}">
                     <div class="conn-header">
-                        <label style="display:flex;align-items:center;cursor:pointer;margin:0;">
-                            <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleEnabled(${i})" style="width:18px;height:18px;" title="Activar/Desactivar">
-                        </label>
-                        <span class="star ${isActive ? 'active' : ''}" onclick="setActive(${i})" title="${isActive ? 'Conexion activa' : 'Marcar como activa'}">${isActive ? '&#9733;' : '&#9734;'}</span>
-                        <span class="color-badge" style="background:${prov.color};"></span>
-                        <input type="text" value="${escapeHtml(c.name)}" onchange="updateField(${i},'name',this.value)" placeholder="Nombre de la conexion" style="flex:1;max-width:220px;">
-                        ${isActive ? '<span class="active-label">ACTIVA</span>' : ''}
+                        <div class="conn-header-main">
+                            <label style="display:flex;align-items:center;cursor:pointer;margin:0;">
+                                <input type="checkbox" ${c.enabled ? 'checked' : ''} onchange="toggleEnabled(${i})" style="width:18px;height:18px;" title="Activar/Desactivar">
+                            </label>
+                            <span class="star ${isActive ? 'active' : ''}" onclick="setActive(${i})" title="${isActive ? 'Conexion activa' : 'Marcar como activa'}">${isActive ? '&#9733;' : '&#9734;'}</span>
+                            <span class="color-badge" style="background:${prov.color};"></span>
+                            <div class="conn-header-text">
+                                <div class="conn-header-title">${escapeHtml(title)}</div>
+                                <div class="conn-header-summary">${escapeHtml(prov.label || c.provider)} · ${escapeHtml(modelSummary)} · ${escapeHtml(visionSummary)}</div>
+                            </div>
+                            ${isActive ? '<span class="active-label">ACTIVA</span>' : ''}
+                        </div>
+                        <button type="button" class="btn btn-sm conn-config-toggle" onclick="toggleConnectionExpanded('${c.id}')"><span class="caret">▾</span>${expandedConnectionIds.has(c.id) ? 'Ocultar configuracion' : 'Configurar'}</button>
                         <button type="button" class="btn btn-danger btn-sm" onclick="removeConnection(${i})" title="Eliminar">X</button>
                     </div>
                     <div class="conn-body">
+                        <div class="form-group">
+                            <label>Nombre de la conexion</label>
+                            <input type="text" value="${escapeHtml(c.name)}" onchange="updateField(${i},'name',this.value); renderConnections()" placeholder="Nombre de la conexion">
+                        </div>
                         <div class="input-row" style="margin-bottom:12px;">
                             <div class="form-group" style="max-width:220px;">
                                 <label>Proveedor</label>
@@ -430,7 +468,14 @@
                                 </select>
                                 <button type="button" class="btn btn-teal btn-sm" onclick="fetchModels(${i})">Cargar modelos</button>
                             </div>
-                            <span id="vision-badge-${i}" class="vision-badge no">${c.models.find(m=>m.id===c.model)?.vision ? 'Vision' : 'Solo texto'}</span>
+                            <div class="toggle-inline" style="margin-top:8px; justify-content:space-between; flex-wrap:wrap;">
+                                <span id="vision-badge-${i}" class="vision-badge ${((c.force_vision === true) || c.models.find(m=>m.id===c.model)?.vision) ? 'yes' : 'no'}">${((c.force_vision === true) || c.models.find(m=>m.id===c.model)?.vision) ? 'Vision' : 'Solo texto'}</span>
+                                <label style="display:flex; align-items:center; gap:8px; margin:0; font-size:12px; color:#555;">
+                                    <input type="checkbox" ${c.force_vision === true ? 'checked' : ''} onchange="updateField(${i},'force_vision',this.checked); renderConnections(); updateVisionSelector()">
+                                    Forzar vision manualmente
+                                </label>
+                            </div>
+                            <span class="help-text">Activalo si el modelo soporta vision pero no aparece detectado automaticamente, por ejemplo en algunos modelos de Ollama.</span>
                         </div>
                         <div class="btn-group" style="margin-top:8px;">
                             <button type="button" class="btn btn-test btn-sm" onclick="testConnection(${i})">Probar esta conexion</button>

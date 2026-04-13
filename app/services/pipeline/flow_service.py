@@ -22,7 +22,7 @@ from app.services.pipeline.events import event_logger
 from app.services.path_filters import is_ignored_source_folder
 from app.services.settings.service import SettingsResolver
 from app.services.working_directory_cleanup import working_directory_cleanup_service
-from app.core.enums import EventLevel, CandidateGroupingStrategy
+from app.core.enums import EventLevel, CandidateGroupingStrategy, ExtractionMethod
 from app.core.states import BatchStatus, CandidateStatus
 from app.db.repositories.all_repos import (
     source_batch_repo, source_file_repo, content_candidate_repo,
@@ -262,6 +262,25 @@ class FlowService:
 
             event_logger.log(db, EventLevel.INFO, "BATCH_INGESTED", "FLOW", f"Flow {flow.name} ({source_info['resolved_path']})", batch_id=batch.id)
             source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.PROCESSING})
+            event_logger.log(
+                db,
+                EventLevel.INFO,
+                "FLOW_PROCESSING_STARTED",
+                "FLOW",
+                f"Iniciado el procesado del flujo {flow.name or flow.id}",
+                batch_id=batch.id,
+                payload={
+                    "flow_id": str(flow.id),
+                    "flow_name": flow.name,
+                    "source_mode": source_info["mode"],
+                    "resolved_path": source_info["resolved_path"],
+                    "files_count": len(source_files),
+                    "documents_count": len([f for f in source_files if f.extension in [".pdf", ".docx"]]),
+                    "images_count": len([f for f in source_files if f.extension in [".jpg", ".jpeg", ".png"]]),
+                    "ocr_engine": SettingsResolver.get("ocr_engine", "disabled"),
+                    "llm": self._get_llm_activity_info(),
+                },
+            )
 
             docs = [f for f in source_files if f.extension in [".pdf", ".docx"]]
             imgs = [f for f in source_files if f.extension in [".jpg", ".jpeg", ".png"]]
@@ -274,6 +293,14 @@ class FlowService:
             if not groups:
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FAILED, "error_message": "No se pudieron agrupar los contenidos"})
                 return {"success": False, "message": "No se pudieron agrupar los contenidos del lote"}
+            event_logger.log(
+                db,
+                EventLevel.INFO,
+                "GROUPING_COMPLETED",
+                "GROUPING",
+                f"Agrupacion completada: {len(groups)} candidato(s)",
+                batch_id=batch.id,
+            )
 
             hints = {
                 "municipality_hint": flow.municipality or "",
@@ -305,12 +332,60 @@ class FlowService:
                     "grouping_confidence": group.confidence,
                     "status": CandidateStatus.CREATED
                 })
+                event_logger.log(
+                    db,
+                    EventLevel.INFO,
+                    "CANDIDATE_PROCESSING_STARTED",
+                    "CANDIDATE",
+                    f"Procesando candidato {group.candidate_key}",
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                    payload={
+                        "candidate_key": group.candidate_key,
+                        "grouping_strategy": group.strategy.value if group.strategy else None,
+                        "documents": len(group_docs),
+                        "images": len(group_imgs),
+                    },
+                )
 
+                event_logger.log(db, EventLevel.INFO, "EXTRACTION_STARTED", "EXTRACTION", "Extrayendo texto y OCR", batch_id=batch.id, candidate_id=candidate.id)
                 extractions = self.extraction_orchestrator.process_files(
                     [{"id": f.id, "path": f.working_path} for f in group_docs + group_imgs]
                 )
+                event_logger.log(
+                    db,
+                    EventLevel.INFO,
+                    "EXTRACTION_COMPLETED",
+                    "EXTRACTION",
+                    f"Extraccion completada con {len(extractions)} resultado(s)",
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                )
                 classification = self.classification_orchestrator.classify_candidate(group, extractions, hints)
+                event_logger.log(
+                    db,
+                    EventLevel.INFO,
+                    "CLASSIFICATION_COMPLETED",
+                    "CLASSIFICATION",
+                    f"Clasificacion: {classification.municipality.value if classification.municipality else 'UNKNOWN'} / {classification.category.value if classification.category else 'UNKNOWN'}",
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                    payload={
+                        "classification_confidence": classification.classification_confidence,
+                        "review_required": classification.requires_review,
+                        "review_reasons": classification.review_reasons,
+                    },
+                )
                 processed_images = self.image_processor.process_images(candidate, group_imgs)
+                event_logger.log(
+                    db,
+                    EventLevel.INFO,
+                    "IMAGE_PROCESSING_COMPLETED",
+                    "IMAGES",
+                    f"Procesadas {len(processed_images)} imagen(es)",
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                )
 
                 candidate_image_uploads = exporter.plan_image_uploads(flow.municipality, processed_images)
                 public_image_map = {item.get("source_file_id", ""): item for item in candidate_image_uploads}
@@ -322,12 +397,65 @@ class FlowService:
                         "thumbnail_path": mapped.get("thumbnail_public_url") or image.thumbnail_path,
                     }))
 
-                combined_text = "\n".join([e.cleaned_text for e in extractions if str(e.cleaned_text or "").strip()])
+                doc_text = "\n".join([
+                    e.cleaned_text for e in extractions
+                    if str(e.cleaned_text or "").strip() and e.method != ExtractionMethod.OCR_IMAGE
+                ])
+                vision_text = "\n".join([
+                    e.cleaned_text for e in extractions
+                    if str(e.cleaned_text or "").strip() and e.method == ExtractionMethod.OCR_IMAGE
+                ])
+                combined_text = doc_text or vision_text
+                event_logger.log(
+                    db,
+                    EventLevel.INFO,
+                    "EDITORIAL_STARTED",
+                    "EDITORIAL",
+                    "Generando contenido editorial y SEO",
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                    payload={"llm": self._get_llm_activity_info()},
+                )
+                event_logger.log(
+                    db,
+                    EventLevel.INFO,
+                    "FINAL_REVIEW_STARTED",
+                    "EDITORIAL",
+                    "Iniciando revision final de contenido, SEO y ortografia",
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                )
                 editorial = self.editorial_builder.build_editorial_content(
                     classification,
                     combined_text,
                     editorial_images,
-                    {"featured_selection_images": processed_images},
+                    {
+                        "featured_selection_images": processed_images,
+                        "vision_context_text": vision_text,
+                    },
+                )
+                event_logger.log(
+                    db,
+                    EventLevel.INFO,
+                    "FINAL_REVIEW_COMPLETED",
+                    "EDITORIAL",
+                    "Revision final completada",
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                    payload={"notes": len(editorial.structured_fields.get("final_review_notes", []))},
+                )
+                event_logger.log(
+                    db,
+                    EventLevel.INFO,
+                    "EDITORIAL_COMPLETED",
+                    "EDITORIAL",
+                    f"Editorial completado: {editorial.final_title or 'Sin titulo'}",
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                    payload={
+                        "inserted_images": len(editorial.inserted_images or []),
+                        "featured_image_ref": str(editorial.featured_image_ref) if editorial.featured_image_ref else None,
+                    },
                 )
 
                 canonical = canonical_content_repo.create(db, obj_in={
@@ -353,6 +481,16 @@ class FlowService:
                 adapter_result = adapter.build_payload(canonical)
                 if adapter_result.raw_payload is not None:
                     export_payloads.append(adapter_result.raw_payload)
+                event_logger.log(
+                    db,
+                    EventLevel.INFO,
+                    "EXPORT_PAYLOAD_READY",
+                    "EXPORT",
+                    "Payload de exportacion generado",
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                    payload={"adapter": adapter_result.adapter_name},
+                )
 
                 if not adapter_result.is_ready_for_export:
                     canonical_content_repo.update(db, db_obj=canonical, obj_in={"requires_review": True})
@@ -390,11 +528,14 @@ class FlowService:
 
             if any(status == CandidateStatus.REVIEW_REQUIRED for status in candidate_statuses):
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.REVIEW_REQUIRED})
+                event_logger.log(db, EventLevel.WARNING, "BATCH_REVIEW_REQUIRED", "FLOW", "El lote requiere revision", batch_id=batch.id)
             else:
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FINISHED})
                 self.working_cleanup_service.cleanup_batch(batch)
+                event_logger.log(db, EventLevel.INFO, "BATCH_FINISHED", "FLOW", "Procesado completado correctamente", batch_id=batch.id)
 
             self._move_processed_files(source_info, downloaded_files)
+            event_logger.log(db, EventLevel.INFO, "PROCESSED_MOVE_COMPLETED", "FLOW", "Archivos movidos a processed", batch_id=batch.id)
 
             return {
                 "success": True,
@@ -419,6 +560,18 @@ class FlowService:
             if local_temp_dir and os.path.exists(local_temp_dir):
                 shutil.rmtree(local_temp_dir, ignore_errors=True)
             db.close()
+
+    def _get_llm_activity_info(self) -> Dict[str, Any]:
+        provider = SettingsResolver.get("llm_provider", "")
+        model = SettingsResolver.get("llm_model", "")
+        ocr_engine = SettingsResolver.get("ocr_engine", "disabled")
+        ocr_connection_id = SettingsResolver.get("ocr_vision_connection_id", "")
+        return {
+            "provider": provider,
+            "model": model,
+            "ocr_engine": ocr_engine,
+            "ocr_vision_connection_id": ocr_connection_id,
+        }
 
     def build_export_payload(self, flow: Flow, articles: List[Dict[str, Any]], export_payload: Optional[Any] = None) -> Any:
         if export_payload is not None:

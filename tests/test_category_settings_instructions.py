@@ -13,6 +13,10 @@ def test_default_category_instructions_include_strict_json_rule():
     assert "Rank Math" in agenda["instructions"]
     assert "Destacat" in agenda["instructions"]
     assert "intercalar les imatges" in agenda["instructions"]
+    assert "image_ref" in agenda["instructions"]
+    assert "content_items" in agenda["instructions"]
+    assert "blocs visuals diferenciats" in agenda["instructions"]
+    assert "obligatoriament en catala" in agenda["instructions"]
     assert "Professionals" in consells["instructions"]
 
 
@@ -26,4 +30,8 @@ def test_stored_category_instructions_keep_strict_json_rule(mock_get):
     assert "estructura del JSON" in agenda["instructions"]
     assert "Rank Math" in agenda["instructions"]
     assert "intercalar les imatges" in agenda["instructions"]
+    assert "image_ref" in agenda["instructions"]
+    assert "content_items" in agenda["instructions"]
+    assert "blocs visuals diferenciats" in agenda["instructions"]
+    assert "obligatoriament en catala" in agenda["instructions"]
     assert "Prioritza dates confirmades." in agenda["instructions"]

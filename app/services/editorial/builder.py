@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from app.schemas.all_schemas import EditorialBuildResult, ImageProcessingResult
 from app.schemas.classification import FinalClassificationResult
+from app.services.editorial.final_review import final_review_service
 from app.services.categories.service import (
     get_category_export_config,
     parse_json_example,
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 
 class EditorialBuilderService:
+
+    def __init__(self):
+        self.final_review_service = final_review_service
 
     def build_editorial_content(
         self,
@@ -55,7 +59,7 @@ class EditorialBuilderService:
         subtype = classification.subtype.value if classification.subtype else ""
         category_config = get_category_export_config(category)
 
-        llm_result = self._try_llm(prepared_text, municipality, category, subtype, category_config, source_context)
+        llm_result = self._try_llm(prepared_text, municipality, category, subtype, category_config, source_context, metadata)
         if llm_result:
             structured_fields = self._extract_structured_fields(llm_result, category, prepared_text)
             if images and images[0].optimized_path:
@@ -69,7 +73,21 @@ class EditorialBuilderService:
                 images=images,
                 structured_fields=structured_fields,
                 source_context=source_context,
-                metadata=metadata,
+                metadata={**metadata, "category": category},
+            )
+            final_title, final_summary, final_body_html, structured_fields = self._apply_final_review(
+                municipality=municipality,
+                category=category,
+                subtype=subtype,
+                original_text=prepared_text,
+                vision_context_text=self._clean_text_line(metadata.get("vision_context_text", "")),
+                title=final_title,
+                summary=final_summary,
+                body_html=final_body_html,
+                structured_fields=structured_fields,
+                images=images,
+                source_context=source_context,
+                metadata={**metadata, "category": category},
             )
 
             self._normalize_category_specific_fields(structured_fields, llm_result, category, prepared_text)
@@ -83,7 +101,7 @@ class EditorialBuilderService:
                 municipality=municipality,
                 category=category,
                 subtype=subtype,
-                featured_image_path=images[0].optimized_path if images and images[0].optimized_path else "",
+                featured_image_path=structured_fields.get("rank_math_facebook_image") or (images[0].optimized_path if images and images[0].optimized_path else ""),
                 structured_fields=structured_fields,
             )
             if strict_payload is not None:
@@ -110,6 +128,7 @@ class EditorialBuilderService:
         subtype: str,
         category_config: Dict[str, Any],
         source_context: Dict[str, Any],
+        metadata: Dict[str, Any],
     ) -> Optional[Dict[str, str]]:
         try:
             from app.services.ai.client import get_active_llm_client
@@ -129,7 +148,8 @@ class EditorialBuilderService:
             "Respon SEMPRE en JSON valid amb aquests camps: title (titol breu), "
             "summary (resum 1-2 frases), body_html (cos en HTML net amb <p>, <h2>, <ul>, <strong>) "
             "i strict_export_payload (objecte JSON final si hi ha plantilla estricta). "
-            "Idioma: catala. No facis servir Markdown, nomes HTML."
+            "Idioma obligatori: catala. No pots redactar cap contingut editorial en castella ni en cap altre idioma, excepte noms propis, marques o cites literals imprescindibles. "
+            "No facis servir Markdown, nomes HTML."
         )
         prompt = (
             f"Municipi: {municipality}\n"
@@ -137,6 +157,14 @@ class EditorialBuilderService:
             f"Subtipus: {subtype}\n\n"
             f"Text extret:\n{truncated}\n\n"
         )
+        vision_context = self._clean_text_line(metadata.get("vision_context_text", ""))
+        if vision_context:
+            prompt += (
+                "Text complementari extret d'imatges o cartells:\n"
+                f"{self._limit_text(vision_context, 2500)}\n\n"
+                "Fes-lo servir nomes com a suport contextual si encaixa clarament amb el contingut principal. "
+                "No el copiïs ni l'afegeixis com un bloc separat o com si fos informacio nova desconnectada del text base.\n\n"
+            )
         if source_context.get("author_source"):
             prompt += "La signatura final del text indica autoria original. No la deixis com una linia solta dins del body_html; el sistema l'afegira com a nota final d'autoria.\n\n"
         if source_context.get("has_highlight_marker"):
@@ -157,9 +185,24 @@ class EditorialBuilderService:
                 "Si hi ha dubte o si el tema es generic de serveis, empresa, llar, jardineria, piscines, reformes o recomanacions professionals, fes servir Professionals. "
                 "No classifiquis com Bellesa per simple to estetic o decoratiu si el sector real no es bellesa.\n\n"
             )
+        if category == "AGENDA":
+            prompt += (
+                "Per a agenda, el body_html ha de tenir una introduccio editorial breu i despres els esdeveniments ben estructurats visualment. "
+                "Cada activitat ha d'apareixer com un bloc propi, amb el titol destacat, la data i hora amb un format diferenciat, el lloc amb un altre format i la descripcio en un paragraf clar. "
+                "No perdis cap activitat del text original i no fusionis activitats diferents en un sol paragraf.\n\n"
+            )
+        prompt += (
+            "Si el contingut conté un llistat de diversos esdeveniments, activitats, empreses, restaurants, escoles, hotels, establiments o altres elements diferenciats, "
+            "afegeix tambe un camp JSON 'content_items' amb una llista d'objectes. Cada objecte ha de tenir: "
+            "title, datetime_label, location, description, extra_info i image_ref. "
+            "image_ref es pot deixar buit; el sistema intentara assignar la imatge correcta automaticament. "
+            "Per a continguts d'agenda, si retorna activitats, pots incloure tambe 'activities' amb la mateixa estructura.\n\n"
+        )
         prompt += (
             "Optimitza el title, el summary i el body_html per SEO sense inventar dades i mantenint la fidelitat al contingut base. "
-            "No deixis signatures com AMIC o Redaccio dins del cos de l'article. Estructura el body_html en blocs o seccions naturals per facilitar la insercio intercalada d'imatges dins del contingut.\n\n"
+            "No deixis signatures com AMIC o Redaccio dins del cos de l'article. Estructura el body_html en blocs o seccions naturals per facilitar la insercio intercalada d'imatges dins del contingut. "
+            "La redaccio final ha de ser sempre en catala. "
+            "No pots resumir reduint informacio: has de conservar tots els apartats, activitats, esdeveniments o seccions del text original i, si cal, ampliar-los amb context real i verificable.\n\n"
         )
         prompt += (
             "Respon amb JSON: {\"title\": \"...\", \"summary\": \"...\", \"body_html\": \"...\", \"strict_export_payload\": {...}}"
@@ -231,7 +274,21 @@ class EditorialBuilderService:
             images=images,
             structured_fields=structured_fields,
             source_context=source_context,
-            metadata={},
+            metadata={"category": category},
+        )
+        title, summary, body_html, structured_fields = self._apply_final_review(
+            municipality=classification.municipality.value if classification.municipality else "",
+            category=category,
+            subtype=classification.subtype.value if classification.subtype else "",
+            original_text=text,
+            vision_context_text="",
+            title=title,
+            summary=summary,
+            body_html=body_html,
+            structured_fields=structured_fields,
+            images=images,
+            source_context=source_context,
+            metadata={"category": category},
         )
 
         self._normalize_category_specific_fields(structured_fields, {}, category, text)
@@ -246,7 +303,7 @@ class EditorialBuilderService:
             municipality=classification.municipality.value if classification.municipality else "",
             category=classification.category.value if classification.category else "",
             subtype=classification.subtype.value if classification.subtype else "",
-            featured_image_path=images[0].optimized_path if images and images[0].optimized_path else "",
+            featured_image_path=structured_fields.get("rank_math_facebook_image") or (images[0].optimized_path if images and images[0].optimized_path else ""),
             structured_fields=structured_fields,
         )
         if strict_payload is not None:
@@ -268,6 +325,13 @@ class EditorialBuilderService:
         self, llm_result: Dict[str, str], category: str, text: str
     ) -> Dict[str, Any]:
         fields: Dict[str, Any] = {}
+
+        if isinstance(llm_result.get("content_items"), list):
+            fields["content_items"] = self._normalize_activity_items(llm_result.get("content_items"))
+        if isinstance(llm_result.get("activities"), list):
+            fields["activities"] = self._normalize_activity_items(llm_result.get("activities"))
+            if "content_items" not in fields:
+                fields["content_items"] = list(fields["activities"])
 
         date_pattern = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})")
         dates_found = date_pattern.findall(text)
@@ -351,6 +415,59 @@ class EditorialBuilderService:
             )
         return normalized_payload
 
+    def _apply_final_review(
+        self,
+        municipality: str,
+        category: str,
+        subtype: str,
+        original_text: str,
+        vision_context_text: str,
+        title: str,
+        summary: str,
+        body_html: str,
+        structured_fields: Dict[str, Any],
+        images: List[ImageProcessingResult],
+        source_context: Dict[str, Any],
+        metadata: Dict[str, Any],
+    ) -> tuple[str, str, str, Dict[str, Any]]:
+        reviewed = self.final_review_service.review_content(
+            municipality=municipality,
+            category=category,
+            subtype=subtype,
+            original_text=original_text,
+            vision_context_text=vision_context_text,
+            draft_title=title,
+            draft_summary=summary,
+            draft_body_html=body_html,
+        )
+
+        reviewed_title = self._clean_text_line(reviewed.get("title", "")) or title
+        reviewed_summary = self._build_summary(reviewed.get("summary", ""), original_text)
+        reviewed_body_html = self._clean_text_line(reviewed.get("body_html", "")) and reviewed.get("body_html", "") or body_html
+        if "<figure" in body_html and "<figure" not in reviewed_body_html:
+            reviewed_body_html = body_html
+        reviewed_body_html = self._ensure_source_text_is_preserved(
+            reviewed_body_html,
+            original_text,
+            reviewed_summary,
+            metadata.get("category") or category,
+            self._prepare_listing_items(structured_fields),
+        )
+        reviewed_body_html = self._sanitize_body_html(reviewed_body_html, original_text, reviewed_title, source_context)
+
+        featured_image_path = structured_fields.get("rank_math_facebook_image") or structured_fields.get("_featured_image_path") or (images[0].optimized_path if images and images[0].optimized_path else "")
+        seo_fields = self._build_seo_fields(
+            title=reviewed_title,
+            summary=reviewed_summary,
+            body_html=reviewed_body_html,
+            featured_image_path=featured_image_path,
+            author_source=source_context.get("author_source", ""),
+        )
+        structured_fields.update(seo_fields)
+        if reviewed.get("notes"):
+            structured_fields["final_review_notes"] = reviewed.get("notes")
+        return reviewed_title, reviewed_summary, reviewed_body_html, structured_fields
+
     def _normalize_category_specific_fields(
         self,
         structured_fields: Dict[str, Any],
@@ -395,12 +512,37 @@ class EditorialBuilderService:
         featured_image = self._select_featured_image(final_title, final_summary, body_text, images, selection_images)
         featured_image_path = featured_image.optimized_path if featured_image and featured_image.optimized_path else ""
 
+        source_listing_items = self._extract_content_items_from_source(body_text, metadata.get("category") or "")
+        listing_items = self._prepare_listing_items(structured_fields)
+        if source_listing_items and len(source_listing_items) >= len(listing_items):
+            listing_items = source_listing_items
+
         sanitized_body_html = self._sanitize_body_html(body_html, body_text, final_title, source_context)
+        sanitized_body_html = self._ensure_source_text_is_preserved(
+            sanitized_body_html,
+            body_text,
+            final_summary,
+            metadata.get("category") or "",
+            listing_items,
+        )
+        listing_items = self._assign_activity_image_refs(
+            listing_items,
+            images,
+            metadata.get("featured_selection_images") or images,
+            final_title,
+            final_summary,
+            body_text,
+        )
+        if listing_items:
+            structured_fields["content_items"] = listing_items
+            if structured_fields.get("activities") or self._looks_like_listing_category(metadata.get("category") or ""):
+                structured_fields["activities"] = listing_items
         final_body_html, inserted_images = self._insert_inline_images(
             sanitized_body_html,
             images,
             featured_image.source_file_id if featured_image else None,
             final_title,
+            listing_items,
         )
 
         seo_fields = self._build_seo_fields(
@@ -474,6 +616,7 @@ class EditorialBuilderService:
             f"S'han adjuntat {len(prepared_images)} imatges en aquest ordre. "
             "Escull quina representa millor el contingut principal de l'article com a imatge destacada. "
             "Prioritza la imatge mes informativa, clara i alineada amb el tema central, no la mes decorativa. "
+            "Si una de les imatges es un cartell, poster o programa visual que resumeix globalment l'esdeveniment o el contingut, aquesta ha de ser la portada preferent. "
             "Respon nomes amb JSON valid: {\"featured_image_index\": N}."
         )
         image_payloads = [item["payload"] for item in prepared_images]
@@ -515,6 +658,10 @@ class EditorialBuilderService:
         if not images:
             return None
 
+        poster_candidate = self._select_poster_image_by_filename(images)
+        if poster_candidate is not None:
+            return poster_candidate
+
         def sort_key(image: ImageProcessingResult) -> tuple[int, int, int]:
             area = int(getattr(image, "width", 0) or 0) * int(getattr(image, "height", 0) or 0)
             landscape_bonus = 1 if int(getattr(image, "width", 0) or 0) >= int(getattr(image, "height", 0) or 0) else 0
@@ -522,25 +669,295 @@ class EditorialBuilderService:
 
         return max(images, key=sort_key)
 
+    def _select_poster_image_by_filename(self, images: List[ImageProcessingResult]) -> Optional[ImageProcessingResult]:
+        poster_tokens = {"cartell", "cartel", "poster", "flyer", "programa", "agenda", "ok"}
+        for image in images:
+            image_path = image.optimized_path or image.thumbnail_path or ""
+            image_tokens = self._extract_image_name_tokens(image_path)
+            image_stem = self._normalize_image_stem(image_path)
+            if image_tokens.intersection(poster_tokens) or image_stem.lower().endswith("-ok") or image_stem.lower().endswith("_ok"):
+                return image
+        return None
+
+    def _normalize_activity_items(self, activities: Any) -> List[Dict[str, Any]]:
+        if not isinstance(activities, list):
+            return []
+
+        normalized = []
+        for item in activities:
+            if not isinstance(item, dict):
+                continue
+            normalized.append({
+                "title": self._clean_text_line(item.get("title", "")),
+                "datetime_label": self._clean_text_line(item.get("datetime_label", "")),
+                "location": self._clean_text_line(item.get("location", "")),
+                "description": self._clean_text_line(item.get("description", "")),
+                "extra_info": self._clean_text_line(item.get("extra_info", "")),
+                "image_ref": item.get("image_ref", "") or "",
+            })
+        return normalized
+
+    def _extract_content_items_from_source(self, body_text: str, category: str) -> List[Dict[str, Any]]:
+        chunks = self._source_chunks(body_text)
+        if len(chunks) < 4:
+            return []
+
+        sections = []
+        current_section = None
+        for chunk in chunks:
+            if self._is_source_section_heading(chunk, category):
+                if current_section:
+                    sections.append(current_section)
+                current_section = {"title": chunk, "lines": []}
+            elif current_section is not None:
+                current_section["lines"].append(chunk)
+
+        if current_section:
+            sections.append(current_section)
+
+        if len(sections) < 2:
+            return []
+
+        items = []
+        for section in sections:
+            lines = [self._clean_text_line(line) for line in section.get("lines", []) if self._clean_text_line(line)]
+            datetime_label = self._extract_datetime_label(lines)
+            location = self._extract_location_label(lines)
+            content_lines = [line for line in lines if line and line != datetime_label and line != location]
+            heading_label = self._format_source_heading(section.get("title", ""))
+            item_title = heading_label
+            description_lines = content_lines
+            extra_info = ""
+
+            if content_lines:
+                item_title = content_lines[0]
+                description_lines = content_lines[1:]
+                if heading_label and self._normalize_token(heading_label) != self._normalize_token(item_title):
+                    extra_info = heading_label
+
+            items.append({
+                "title": item_title,
+                "datetime_label": datetime_label,
+                "location": location,
+                "description": " ".join(description_lines),
+                "extra_info": extra_info,
+                "image_ref": "",
+            })
+        return items
+
+    def _assign_activity_image_refs(
+        self,
+        activities: List[Dict[str, Any]],
+        editorial_images: List[ImageProcessingResult],
+        selection_images: List[ImageProcessingResult],
+        title: str,
+        summary: str,
+        body_text: str,
+    ) -> List[Dict[str, Any]]:
+        if not activities or not editorial_images:
+            return activities
+
+        source_image_map = {image.source_file_id: image for image in editorial_images}
+        assigned_source_ids = set()
+
+        for activity in activities:
+            if activity.get("image_ref"):
+                matching = self._find_editorial_image_by_path(activity.get("image_ref", ""), editorial_images)
+                if matching:
+                    assigned_source_ids.add(matching.source_file_id)
+
+        for activity in activities:
+            if activity.get("image_ref"):
+                continue
+            matched = self._match_image_to_activity_by_filename(activity, editorial_images, assigned_source_ids)
+            if matched:
+                activity["image_ref"] = matched.optimized_path or ""
+                assigned_source_ids.add(matched.source_file_id)
+
+        remaining_activities = [activity for activity in activities if not activity.get("image_ref")]
+        remaining_selection_images = [image for image in selection_images if image.source_file_id not in assigned_source_ids]
+        if remaining_activities and remaining_selection_images:
+            ai_matches = self._match_activity_images_with_ai(title, summary, body_text, remaining_activities, remaining_selection_images)
+            for activity_index, source_file_id in ai_matches.items():
+                if activity_index < 0 or activity_index >= len(remaining_activities):
+                    continue
+                editorial_image = source_image_map.get(source_file_id)
+                if not editorial_image or not editorial_image.optimized_path:
+                    continue
+                remaining_activities[activity_index]["image_ref"] = editorial_image.optimized_path
+                assigned_source_ids.add(source_file_id)
+
+        return activities
+
+    def _find_editorial_image_by_path(
+        self,
+        image_ref: str,
+        editorial_images: List[ImageProcessingResult],
+    ) -> Optional[ImageProcessingResult]:
+        image_name = self._normalize_image_stem(image_ref)
+        for image in editorial_images:
+            if self._normalize_image_stem(image.optimized_path or "") == image_name:
+                return image
+        return None
+
+    def _match_image_to_activity_by_filename(
+        self,
+        activity: Dict[str, Any],
+        editorial_images: List[ImageProcessingResult],
+        assigned_source_ids: set,
+    ) -> Optional[ImageProcessingResult]:
+        activity_tokens = self._extract_activity_tokens(activity)
+        if not activity_tokens:
+            return None
+
+        best_image = None
+        best_score = 0
+        for image in editorial_images:
+            if image.source_file_id in assigned_source_ids:
+                continue
+            image_tokens = self._extract_image_name_tokens(image.optimized_path or "")
+            score = len(activity_tokens.intersection(image_tokens))
+            if score > best_score:
+                best_score = score
+                best_image = image
+
+        return best_image if best_score >= 1 else None
+
+    def _match_activity_images_with_ai(
+        self,
+        title: str,
+        summary: str,
+        body_text: str,
+        activities: List[Dict[str, Any]],
+        images: List[ImageProcessingResult],
+    ) -> Dict[int, Any]:
+        if not activities or not images:
+            return {}
+
+        try:
+            from app.services.ai.client import get_active_llm_client
+
+            client = get_active_llm_client(use_ocr_vision=True)
+            if not client:
+                return {}
+        except Exception:
+            return {}
+
+        prepared_images = []
+        for idx, image in enumerate(images[:8], start=1):
+            payload = self._build_llm_image_payload(image.optimized_path or image.thumbnail_path or "")
+            if not payload:
+                continue
+            prepared_images.append({"index": idx, "source_file_id": image.source_file_id, "payload": payload})
+
+        if not prepared_images:
+            return {}
+
+        activities_text = []
+        for idx, activity in enumerate(activities, start=1):
+            activities_text.append(
+                f"{idx}. title={activity.get('title', '')} | datetime_label={activity.get('datetime_label', '')} | location={activity.get('location', '')} | description={activity.get('description', '')}"
+            )
+
+        prompt = (
+            f"Article principal: {title}\n"
+            f"Resum: {summary}\n"
+            f"Context: {self._limit_text(body_text, 1200)}\n\n"
+            "A continuacio tens una llista d'elements del contingut. Les imatges adjuntes estan en el mateix ordre indicat. "
+            "Relaciona cada imatge amb l'element mes probable si representa clarament aquell element concret. "
+            "No assignis una imatge si no hi ha correspondencia clara.\n\n"
+            f"Elements:\n{chr(10).join(activities_text)}\n\n"
+            "Respon nomes amb JSON valid: {\"matches\": [{\"image_index\": 1, \"item_index\": 2}]}"
+        )
+
+        try:
+            response = client.chat(prompt, images=[item["payload"] for item in prepared_images], max_tokens=300)
+            parsed = json.loads(self._extract_json_object(response or "{}"))
+        except Exception:
+            return {}
+
+        matches = parsed.get("matches", []) if isinstance(parsed, dict) else []
+        if not isinstance(matches, list):
+            return {}
+
+        resolved: Dict[int, Any] = {}
+        used_images = set()
+        for match in matches:
+            if not isinstance(match, dict):
+                continue
+            image_index = int(match.get("image_index", 0) or 0)
+            item_index = int(match.get("item_index", 0) or 0)
+            if image_index < 1 or item_index < 1:
+                continue
+            if image_index in used_images or (item_index - 1) in resolved:
+                continue
+            prepared = next((item for item in prepared_images if item["index"] == image_index), None)
+            if not prepared:
+                continue
+            resolved[item_index - 1] = prepared["source_file_id"]
+            used_images.add(image_index)
+        return resolved
+
+    def _extract_activity_tokens(self, activity: Dict[str, Any]) -> set:
+        text = " ".join([
+            activity.get("title", ""),
+            activity.get("location", ""),
+            activity.get("description", ""),
+            activity.get("extra_info", ""),
+        ])
+        return self._tokenize_for_matching(text)
+
+    def _extract_image_name_tokens(self, image_path: str) -> set:
+        stem = self._normalize_image_stem(image_path)
+        return self._tokenize_for_matching(stem)
+
+    def _normalize_image_stem(self, image_path: str) -> str:
+        file_name = self._extract_file_name(image_path)
+        stem = os.path.splitext(file_name)[0]
+        stem = re.sub(r"(?:_opt|_thumb)$", "", stem, flags=re.IGNORECASE)
+        return stem
+
+    def _tokenize_for_matching(self, text: str) -> set:
+        normalized = self._normalize_token(text)
+        tokens = {token for token in re.split(r"[^a-z0-9]+", normalized) if len(token) >= 3}
+        return tokens.difference({"img", "foto", "image", "images", "jpeg", "jpg", "png", "webp"})
+
+    def _extract_json_object(self, text: str) -> str:
+        cleaned = (text or "").strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return cleaned[start:end + 1]
+        return cleaned or "{}"
+
     def _insert_inline_images(
         self,
         body_html: str,
         images: List[ImageProcessingResult],
         featured_image_ref: Optional[Any],
         title: str,
+        listing_items: Optional[List[Dict[str, Any]]] = None,
     ) -> tuple[str, List[str]]:
+        listing_items = listing_items or []
+        inserted_images: List[str] = []
         inline_images = [
             image for image in images
             if image.source_file_id != featured_image_ref and self._can_embed_image(image.optimized_path or "")
         ]
-        if not inline_images:
+        if not inline_images and not any(item.get("image_ref") for item in listing_items):
             return body_html, []
 
         blocks = self._split_html_blocks(body_html)
         if not blocks:
             blocks = [body_html] if body_html.strip() else []
 
-        inserted_images: List[str] = []
+        blocks = self._insert_listing_images_into_blocks(blocks, listing_items, inserted_images)
+        used_image_refs = set(inserted_images)
+        inline_images = [image for image in inline_images if (image.optimized_path or "") not in used_image_refs]
+
         if not blocks:
             for image in inline_images:
                 src = image.optimized_path or ""
@@ -557,6 +974,217 @@ class EditorialBuilderService:
             inserted_images.append(src)
 
         return "\n".join(blocks), inserted_images
+
+    def _insert_listing_images_into_blocks(
+        self,
+        blocks: List[str],
+        listing_items: List[Dict[str, Any]],
+        inserted_images: List[str],
+    ) -> List[str]:
+        if not blocks or not listing_items:
+            return blocks
+
+        used_refs = set()
+        for item in listing_items:
+            image_ref = item.get("image_ref", "") or ""
+            if not self._can_embed_image(image_ref) or image_ref in used_refs:
+                continue
+            block_index = self._find_best_block_index_for_item(item, blocks)
+            if block_index is None:
+                continue
+            insert_at = min(len(blocks), block_index + 1)
+            blocks.insert(insert_at, self._render_inline_image_block(image_ref, item.get("title", "")))
+            inserted_images.append(image_ref)
+            used_refs.add(image_ref)
+        return blocks
+
+    def _ensure_source_text_is_preserved(
+        self,
+        body_html: str,
+        body_text: str,
+        summary: str,
+        category: str,
+        listing_items: List[Dict[str, Any]],
+    ) -> str:
+        source_chunks = self._source_chunks(body_text)
+        generated_plain = self._clean_text_line(self._strip_html(body_html))
+        source_plain = self._clean_text_line(body_text)
+
+        if not source_plain:
+            return body_html
+
+        needs_preservation = False
+        if category == "AGENDA" and len(listing_items) >= 2:
+            needs_preservation = True
+        elif len(source_plain) > max(1, len(generated_plain)) * 1.35 and len(source_chunks) >= 8:
+            needs_preservation = True
+
+        if not needs_preservation:
+            return body_html
+
+        preserved_html = self._build_source_preserving_body_html(body_text, summary, category, listing_items)
+        return preserved_html or body_html
+
+    def _build_source_preserving_body_html(self, body_text: str, summary: str, category: str, listing_items: List[Dict[str, Any]]) -> str:
+        chunks = self._source_chunks(body_text)
+        if not chunks:
+            return ""
+
+        html_parts = []
+        summary_text = self._clean_text_line(summary)
+        if summary_text:
+            html_parts.append(f"<p>{html.escape(summary_text)}</p>")
+
+        if category == "AGENDA" and listing_items:
+            intro_chunks = self._extract_intro_chunks_from_source(chunks, category)
+            for chunk in intro_chunks:
+                html_parts.append(f"<p>{html.escape(chunk)}</p>")
+            for item in listing_items:
+                html_parts.append(self._render_agenda_item_block(item))
+            trailing_chunks = self._extract_trailing_chunks_from_source(chunks, category)
+            for chunk in trailing_chunks:
+                html_parts.append(f"<p>{html.escape(chunk)}</p>")
+            return "\n".join(part for part in html_parts if part)
+
+        current_section = None
+        for chunk in chunks:
+            if self._is_source_section_heading(chunk, category):
+                if current_section:
+                    html_parts.extend(current_section)
+                current_section = [f"<h3>{html.escape(self._format_source_heading(chunk))}</h3>"]
+                continue
+
+            paragraph_html = f"<p>{html.escape(chunk)}</p>"
+            if current_section is None:
+                html_parts.append(paragraph_html)
+            else:
+                current_section.append(paragraph_html)
+
+        if current_section:
+            html_parts.extend(current_section)
+
+        return "\n".join(html_parts)
+
+    def _render_agenda_item_block(self, item: Dict[str, Any]) -> str:
+        parts = ['<section class="panxing-agenda-item" style="margin:0 0 26px 0; padding:18px 18px 16px; border:1px solid #eadfca; background:#fffdf8; border-radius:12px;">']
+        if item.get("extra_info"):
+            parts.append(f'<p style="margin:0 0 8px 0; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:#92400e;">{html.escape(item.get("extra_info", ""))}</p>')
+        if item.get("title"):
+            parts.append(f'<h3 style="margin:0 0 10px 0; font-size:22px; line-height:1.25; color:#1f2937;">{html.escape(item.get("title", ""))}</h3>')
+        if item.get("datetime_label"):
+            parts.append(f'<p class="agenda-datetime" style="margin:0 0 6px 0; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:#b45309;">{html.escape(item.get("datetime_label", ""))}</p>')
+        if item.get("location"):
+            parts.append(f'<p class="agenda-location" style="margin:0 0 10px 0; font-size:14px; font-weight:600; color:#0f766e;">{html.escape(item.get("location", ""))}</p>')
+        if item.get("description"):
+            parts.append(f'<p style="margin:0; color:#374151;">{html.escape(item.get("description", ""))}</p>')
+        if item.get("extra_info"):
+            parts.append(f'<p style="margin:10px 0 0 0; font-size:13px; color:#6b7280;">{html.escape(item.get("extra_info", ""))}</p>')
+        parts.append('</section>')
+        return "".join(parts)
+
+    def _extract_intro_chunks_from_source(self, chunks: List[str], category: str) -> List[str]:
+        intro = []
+        for chunk in chunks:
+            if self._is_source_section_heading(chunk, category):
+                break
+            intro.append(chunk)
+        return intro[:2]
+
+    def _extract_trailing_chunks_from_source(self, chunks: List[str], category: str) -> List[str]:
+        trailing = []
+        seen_heading = False
+        for chunk in chunks:
+            if self._is_source_section_heading(chunk, category):
+                seen_heading = True
+                continue
+            if not seen_heading:
+                continue
+            if chunk.lower().startswith("a mes") or chunk.lower().startswith("a més"):
+                trailing.append(chunk)
+        return trailing
+
+    def _source_chunks(self, body_text: str) -> List[str]:
+        raw_chunks = re.split(r"\n\s*\n+", body_text or "")
+        return [self._clean_text_line(chunk) for chunk in raw_chunks if self._clean_text_line(chunk)]
+
+    def _is_source_section_heading(self, chunk: str, category: str) -> bool:
+        text = self._clean_text_line(chunk)
+        if not text or len(text) > 90:
+            return False
+        if self._contains_datetime_hint(text):
+            return False
+
+        alpha_chars = [char for char in text if char.isalpha()]
+        if not alpha_chars:
+            return False
+        upper_ratio = sum(1 for char in alpha_chars if char.isupper()) / len(alpha_chars)
+        if upper_ratio >= 0.7:
+            return True
+        return False
+
+    def _format_source_heading(self, text: str) -> str:
+        clean = self._clean_text_line(text)
+        alpha_chars = [char for char in clean if char.isalpha()]
+        if alpha_chars and sum(1 for char in alpha_chars if char.isupper()) / len(alpha_chars) >= 0.7:
+            return clean.lower().capitalize()
+        return clean
+
+    def _extract_datetime_label(self, lines: List[str]) -> str:
+        for line in lines:
+            if self._contains_datetime_hint(line):
+                return line
+        return ""
+
+    def _extract_location_label(self, lines: List[str]) -> str:
+        venue_keywords = ["placa", "plaça", "biblioteca", "riera", "tmc", "odèon", "odeon", "teatre", "esglesia", "església", "parc", "passeig", "centre", "pavello", "pavelló"]
+        for line in lines:
+            if self._contains_datetime_hint(line):
+                continue
+            normalized = self._normalize_token(line)
+            if any(keyword in normalized for keyword in venue_keywords):
+                return line
+            if line.isupper() and len(line.split()) <= 8:
+                return line
+        return ""
+
+    def _contains_datetime_hint(self, text: str) -> bool:
+        normalized = self._normalize_token(text)
+        if re.search(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b", text):
+            return True
+        if re.search(r"\b\d{1,2}(?:[:.]\d{2})?\s*h\b", normalized):
+            return True
+        return any(token in normalized for token in ["gener", "febrer", "marc", "abril", "maig", "juny", "juliol", "agost", "setembre", "octubre", "novembre", "desembre", "divendres", "dissabte", "diumenge", "dilluns", "dimarts", "dimecres", "dijous"])
+
+    def _find_best_block_index_for_item(self, item: Dict[str, Any], blocks: List[str]) -> Optional[int]:
+        item_tokens = self._extract_activity_tokens(item)
+        if not item_tokens:
+            return None
+
+        best_index = None
+        best_score = 0
+        for index, block in enumerate(blocks):
+            block_text = self._clean_text_line(self._strip_html(block))
+            if not block_text:
+                continue
+            block_tokens = self._tokenize_for_matching(block_text)
+            score = len(item_tokens.intersection(block_tokens))
+            if re.search(r"(?is)^<h[2-4][^>]*>", block.strip()):
+                score += 2
+            if score > best_score:
+                best_score = score
+                best_index = index
+
+        return best_index if best_score >= 1 else None
+
+    def _prepare_listing_items(self, structured_fields: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if isinstance(structured_fields.get("content_items"), list):
+            return self._normalize_activity_items(structured_fields.get("content_items"))
+        if isinstance(structured_fields.get("activities"), list):
+            return self._normalize_activity_items(structured_fields.get("activities"))
+        return []
+
+    def _looks_like_listing_category(self, category: str) -> bool:
+        return category in {"AGENDA", "CULTURA", "ESPORTS", "TURISME_ACTIU", "NENS_I_JOVES", "GASTRONOMIA", "NOTICIES", "ENTREVISTES"}
 
     def _split_html_blocks(self, body_html: str) -> List[str]:
         block_pattern = re.compile(

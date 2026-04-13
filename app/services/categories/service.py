@@ -65,8 +65,11 @@ STRICT_JSON_INSTRUCTION = (
 )
 
 SEO_EDITORIAL_INSTRUCTION = (
+    "Tota la redaccio final del contingut ha d'estar obligatoriament en catala. "
+    "No es pot escriure cap part editorial en castella ni en cap altre idioma, excepte noms propis, marques o cites literals imprescindibles. "
     "El contingut editorial ha d'estar optimitzat per SEO sense inventar dades. "
     "Cal generar un title, summary i body_html naturals, clars i orientats a posicionament a partir del contingut original. "
+    "No es pot reduir ni eliminar informacio rellevant del text base: s'ha de preservar tot el contingut important, especialment en programes, llistats, agendes o articles amb seccions. "
     "També s'han d'omplir correctament els camps SEO principals de Rank Math: focus keyword, SEO title, SEO description, Facebook title/description/image i Twitter title/description/card type. "
     "rank_math_pillar_content ha d'anar sempre buit."
 )
@@ -79,6 +82,12 @@ AUTHORSHIP_AND_HIGHLIGHT_INSTRUCTION = (
 IMAGE_FLOW_INSTRUCTION = (
     "Quan hi hagi diverses imatges associades a un article, el contingut ha d'estar estructurat en seccions o blocs naturals per poder intercalar les imatges entre el text. "
     "No pensis l'article com un bloc unic ni com una galeria inicial: les imatges secundaries s'han de repartir dins del cos del contingut."
+)
+
+LISTING_IMAGE_INSTRUCTION = (
+    "Si el contingut inclou un llistat d'activitats, esdeveniments, empreses, restaurants, escoles, hotels, establiments o altres elements diferenciats, has de retornar tambe una llista estructurada d'elements al camp content_items. "
+    "Cada element ha d'incloure title, datetime_label, location, description, extra_info i image_ref. "
+    "image_ref pot quedar buit si no es pot determinar directament, pero els titols i descripcions han de ser prou clars per poder relacionar-hi la imatge correcta a partir del nom del fitxer o d'un model de visio."
 )
 
 
@@ -104,12 +113,19 @@ def _load_example_json(category: str) -> str:
 
 
 def _get_default_category_instructions(category: str) -> str:
-    instructions = [STRICT_JSON_INSTRUCTION, SEO_EDITORIAL_INSTRUCTION, AUTHORSHIP_AND_HIGHLIGHT_INSTRUCTION, IMAGE_FLOW_INSTRUCTION]
+    instructions = [STRICT_JSON_INSTRUCTION, SEO_EDITORIAL_INSTRUCTION, AUTHORSHIP_AND_HIGHLIGHT_INSTRUCTION, IMAGE_FLOW_INSTRUCTION, LISTING_IMAGE_INSTRUCTION]
 
     if str(category or "").upper().strip() == ContentCategory.CONSELLS.value:
         instructions.append(
             "El campo consell o consell_type solo puede ser uno de estos valores: Bellesa, Eco, Immobiliàries, Mascotes, Motor, Professionals, Salut. "
             "Nomes has d'usar una categoria especifica si el text tracta clarament aquell sector. Si hi ha dubte, si el contingut es generic de serveis, empresa, llar, jardineria, piscines, reformes o recomanacions professionals, fes servir Professionals."
+        )
+
+    if str(category or "").upper().strip() == ContentCategory.AGENDA.value:
+        instructions.append(
+            "En agenda, la sortida editorial ha de tenir una introduccio curta i despres activitats o esdeveniments en blocs visuals diferenciats. "
+            "El titol de cada activitat ha d'anar destacat, la data i hora amb un format propi, el lloc amb un altre format i la descripcio ben integrada. "
+            "No es poden perdre activitats del programa original."
         )
 
     return "\n\n".join(instructions)
@@ -486,6 +502,7 @@ def _get_exact_export_field_values(values: Dict[str, Any]) -> Dict[str, Any]:
         "rank_math_twitter_player_stream_ctype": values.get("rank_math_twitter_player_stream_ctype", ""),
         "consell": values.get("consell_type", "Professionals"),
         "article-destacat": values.get("article_destacat", "1"),
+        "activitats": values.get("activities", ""),
         "types_caption": values.get("types_caption", ""),
         "types_alt_text": values.get("types_alt_text", ""),
         "types_description": values.get("types_description", ""),
