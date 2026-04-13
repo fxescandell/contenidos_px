@@ -9,6 +9,7 @@ from app.db.repositories.flow_repos import flow_repo
 from app.schemas.flows import FlowCreate, FlowUpdate, FlowResponse, FlowRunRequest
 from app.config.settings import settings
 from app.services.pipeline.flow_service import FlowService
+from app.services.path_filters import is_ignored_source_folder
 from app.services.export.flow_export import FlowExporter
 from app.services.settings.service import SettingsResolver
 from app.core.settings_enums import SettingType
@@ -80,13 +81,13 @@ def browse_folders(mode: str = Query("smb"), db: Session = Depends(get_db)):
             ok, msg, entries = client.list_subfolders("")
             if not ok:
                 return {"success": False, "message": msg, "folders": []}
-            folders = [e["name"] for e in entries if e.get("is_dir") and not e["name"].startswith(".")]
+            folders = [e["name"] for e in entries if e.get("is_dir") and not e["name"].startswith(".") and not is_ignored_source_folder(e["name"])]
 
             municipality_folders = []
             for folder in folders:
                 sub_ok, sub_msg, sub_entries = client.list_subfolders(folder)
                 if sub_ok and sub_entries:
-                    sub_dirs = [s["name"] for s in sub_entries if s.get("is_dir") and not s["name"].startswith(".")]
+                    sub_dirs = [s["name"] for s in sub_entries if s.get("is_dir") and not s["name"].startswith(".") and not is_ignored_source_folder(s["name"])]
                     if sub_dirs:
                         municipality_folders.append({
                             "name": folder,
@@ -110,11 +111,11 @@ def browse_folders(mode: str = Query("smb"), db: Session = Depends(get_db)):
             entries = os.listdir(local_base)
             for entry in sorted(entries):
                 full = os.path.join(local_base, entry)
-                if os.path.isdir(full) and not entry.startswith("."):
+                if os.path.isdir(full) and not entry.startswith(".") and not is_ignored_source_folder(entry):
                     sub_dirs = []
                     try:
                         sub_entries = os.listdir(full)
-                        sub_dirs = sorted([s for s in sub_entries if os.path.isdir(os.path.join(full, s)) and not s.startswith(".")])
+                        sub_dirs = sorted([s for s in sub_entries if os.path.isdir(os.path.join(full, s)) and not s.startswith(".") and not is_ignored_source_folder(s)])
                     except Exception:
                         pass
                     if sub_dirs:

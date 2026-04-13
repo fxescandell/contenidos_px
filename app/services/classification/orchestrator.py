@@ -5,7 +5,7 @@ from app.schemas.classification import FinalClassificationResult
 
 from app.services.classification.signals.detectors import FeatureExtractionOrchestrator
 from app.services.classification.classifiers import MunicipalityClassifier, CategoryClassifier, SubtypeClassifier
-from app.services.classification.scoring import ConfidenceScorer, ReviewDecisionService
+from app.services.classification.scoring import ConfidenceScorer, ReviewDecisionService, get_average_extraction_confidence
 
 class ClassificationOrchestrator:
     def __init__(self):
@@ -22,7 +22,7 @@ class ClassificationOrchestrator:
                            batch_hints: Dict[str, str]) -> FinalClassificationResult:
         
         # 1. Combine all cleaned text
-        combined_text = "\n\n".join(e.cleaned_text for e in extractions)
+        combined_text = "\n\n".join(e.cleaned_text for e in extractions if str(e.cleaned_text or "").strip())
         
         # 2. Extract signals
         signals = self.feature_orchestrator.detect_all(combined_text)
@@ -51,7 +51,7 @@ class ClassificationOrchestrator:
             extractions=extractions
         )
         
-        avg_ext_conf = sum(e.confidence for e in extractions) / len(extractions) if extractions else 0.0
+        avg_ext_conf = get_average_extraction_confidence(extractions)
         class_conf = (mun_class.confidence + cat_class.confidence + sub_class.confidence) / 3
         
         reasoning = [

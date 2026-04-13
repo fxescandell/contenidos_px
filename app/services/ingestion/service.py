@@ -4,6 +4,8 @@ import hashlib
 from typing import Dict, Any, List
 from datetime import datetime
 
+from app.services.path_filters import is_ignored_source_folder
+
 class IngestionService:
     def __init__(self, working_directory: str):
         self.working_directory = working_directory
@@ -15,6 +17,9 @@ class IngestionService:
         """
         if not os.path.exists(source_path):
             raise FileNotFoundError(f"Source path {source_path} does not exist.")
+
+        if os.path.isdir(source_path) and is_ignored_source_folder(os.path.basename(os.path.normpath(source_path))):
+            raise ValueError(f"La carpeta '{os.path.basename(os.path.normpath(source_path))}' esta excluida del procesado.")
 
         batch_name = os.path.basename(source_path)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -29,7 +34,8 @@ class IngestionService:
             shutil.copy2(source_path, dest_path)
             files_metadata.append(self._process_file(dest_path, batch_working_dir))
         else:
-            for root, _, files in os.walk(source_path):
+            for root, dirs, files in os.walk(source_path):
+                dirs[:] = [directory for directory in dirs if not is_ignored_source_folder(directory)]
                 for file in files:
                     if file.startswith('.'):  # Ignore hidden files like .DS_Store
                         continue

@@ -4,6 +4,8 @@ import threading
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+from app.services.path_filters import path_contains_ignored_source_folder
+
 class HotFolderHandler(FileSystemEventHandler):
     def __init__(self, callback):
         self.callback = callback
@@ -12,6 +14,9 @@ class HotFolderHandler(FileSystemEventHandler):
     def on_created(self, event):
         # Ignoramos archivos ocultos o temporales
         if os.path.basename(event.src_path).startswith('.'):
+            return
+
+        if path_contains_ignored_source_folder(event.src_path):
             return
             
         # Damos un pequeño margen para que el archivo/carpeta termine de copiarse

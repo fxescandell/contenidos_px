@@ -21,6 +21,7 @@ from app.adapters.factory import AdapterFactory
 from app.services.export.builder import WordPressJsonExportBuilder
 from app.services.pipeline.events import event_logger
 from app.services.settings.service import SettingsResolver
+from app.services.working_directory_cleanup import working_directory_cleanup_service
 
 class PipelineOrchestrator:
     def __init__(self, config):
@@ -34,6 +35,7 @@ class PipelineOrchestrator:
         self.editorial_builder = EditorialBuilderService()
         self.image_processor = ImageProcessingService(export_dir)
         self.export_builder = WordPressJsonExportBuilder()
+        self.working_cleanup_service = working_directory_cleanup_service
 
     def process_new_batch(self, source_path: str):
         db = SessionLocal()
@@ -102,8 +104,13 @@ class PipelineOrchestrator:
                 processed_images = self.image_processor.process_images(candidate, imgs)
                 
                 # 7. Editorial
-                combined_text = "\n".join([e.cleaned_text for e in extractions])
-                editorial = self.editorial_builder.build_editorial_content(classification, combined_text, processed_images, {})
+                combined_text = "\n".join([e.cleaned_text for e in extractions if str(e.cleaned_text or "").strip()])
+                editorial = self.editorial_builder.build_editorial_content(
+                    classification,
+                    combined_text,
+                    processed_images,
+                    {"featured_selection_images": processed_images},
+                )
                 
                 # Update candidate with featured image
                 if editorial.featured_image_ref:
@@ -153,6 +160,7 @@ class PipelineOrchestrator:
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FAILED})
             else:
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FINISHED})
+                self.working_cleanup_service.cleanup_batch(batch)
 
         except Exception as e:
             if batch_id:

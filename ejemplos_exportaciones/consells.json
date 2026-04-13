@@ -86,7 +86,7 @@
     "rank_math_twitter_player_size": "",
     "rank_math_twitter_player_stream": "",
     "rank_math_twitter_player_stream_ctype": "",
-    "consell": "Mascotes",
+    "consell": "{{consell_type}}",
     "municipi-consells": "{{municipality}}",
     "article-destacat": "1",
     "types_caption": "",

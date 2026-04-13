@@ -10,6 +10,7 @@ from app.schemas.inbox import (
     InboxListResult, InboxFetchResult, InboxEntry
 )
 from app.services.inbox.clients.base import BaseRemoteInboxClient
+from app.services.path_filters import is_ignored_source_folder
 
 class FtpRemoteInboxClient(BaseRemoteInboxClient):
     
@@ -101,8 +102,10 @@ class FtpRemoteInboxClient(BaseRemoteInboxClient):
                     name = parts[-1]
                     if self.settings.ignore_hidden_files and name.startswith('.'):
                         continue
-                        
+                         
                     is_dir = line.startswith('d')
+                    if is_dir and is_ignored_source_folder(name):
+                        continue
                     if not is_dir and not self._is_allowed_extension(name):
                         continue
                         

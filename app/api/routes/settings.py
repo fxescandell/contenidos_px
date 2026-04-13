@@ -21,6 +21,60 @@ from app.services.categories.service import get_category_export_configs
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
+
+def _extract_http_error_message(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    if response is None:
+        return str(exc)
+
+    try:
+        payload = response.json()
+    except Exception:
+        payload = None
+
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            details = error.get("message") or error.get("status") or error.get("code")
+            if details:
+                return str(details)
+        message = payload.get("message")
+        if message:
+            return str(message)
+
+    text = getattr(response, "text", "") or str(exc)
+    return text[:300]
+
+
+def _format_llm_test_error(provider: str, model: str, exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    base_message = _extract_http_error_message(exc)
+    provider_name = provider or "LLM"
+    model_name = model or "modelo sin especificar"
+
+    if provider == "gemini":
+        if status_code == 429:
+            return (
+                f"Gemini ({model_name}) ha rechazado la prueba por limite de peticiones o cuota (HTTP 429). "
+                "Es habitual en modelos preview o cuando la API key no tiene cuota disponible. "
+                "Prueba con un modelo mas estable como gemini-2.0-flash o gemini-2.0-flash-lite y vuelve a intentarlo. "
+                f"Detalle: {base_message}"
+            )
+        if status_code == 404:
+            return (
+                f"Gemini no encuentra el modelo '{model_name}' o no esta disponible para esta API key. "
+                "Carga la lista de modelos de nuevo y selecciona uno soportado por tu cuenta. "
+                f"Detalle: {base_message}"
+            )
+        if status_code == 400:
+            return f"Gemini ha rechazado la solicitud para el modelo '{model_name}'. Revisa que el modelo soporte generateContent. Detalle: {base_message}"
+
+    if status_code:
+        return f"{provider_name} ({model_name}) devolvio HTTP {status_code}. Detalle: {base_message}"
+
+    return base_message
+
 def _get_category_items(db: Session, category: str):
     SettingsService.initialize_defaults(db)
     return SettingsService.get_section(db, category)
@@ -588,14 +642,18 @@ async def save_paths(request: Request, db: Session = Depends(get_db)):
     updates = []
     type_map = {
         "working_folder_path": SettingType.STRING,
+        "cleanup_working_folder_after_success": SettingType.BOOLEAN,
         "export_output_path": SettingType.STRING,
         "temp_folder_path": SettingType.STRING,
         "log_folder_path": SettingType.STRING,
     }
     for key, val_type in type_map.items():
-        val = form_data.get(f"setting_{key}")
+        if val_type == SettingType.BOOLEAN:
+            val = form_data.get(f"setting_{key}") == "true"
+        else:
+            val = form_data.get(f"setting_{key}")
         is_secret = form_data.get(f"secret_{key}") == "on"
-        updates.append(SettingItemUpdate(key=key, value=val or "", value_type=val_type, is_secret=is_secret))
+        updates.append(SettingItemUpdate(key=key, value=val if val_type == SettingType.BOOLEAN else (val or ""), value_type=val_type, is_secret=is_secret))
     SettingsService.update_section(db, "paths", updates, user="admin_user")
     return RedirectResponse(url="/settings/paths?success=true", status_code=303)
 
@@ -712,7 +770,7 @@ async def run_all_tests(request: Request, db: Session = Depends(get_db)):
             resp.raise_for_status()
             results["llm"] = {"success": True, "message": f"{provider} ({model}) OK"}
     except Exception as e:
-        results["llm"] = {"success": False, "message": str(e)}
+        results["llm"] = {"success": False, "message": _format_llm_test_error(provider if 'provider' in locals() else '', model if 'model' in locals() else '', e)}
 
     try:
         client = SmbRemoteInboxClient()
@@ -1214,7 +1272,7 @@ async def test_llm(request: Request, db: Session = Depends(get_db)):
         resp.raise_for_status()
         return {"success": True, "message": f"Conexion exitosa: {provider} ({model})"}
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        return {"success": False, "message": _format_llm_test_error(provider, model, e)}
 
 @router.post("/test/fetch-models")
 async def fetch_llm_models(request: Request):
@@ -1292,7 +1350,17 @@ async def fetch_llm_models(request: Request):
             return {"success": False, "message": f"Proveedor {provider} no soportado.", "models": []}
         return {"success": True, "message": f"{len(models)} modelos encontrados.", "models": models}
     except Exception as e:
-        return {"success": False, "message": str(e), "models": []}
+        provider_name = provider or "LLM"
+        if provider == "gemini":
+            return {
+                "success": False,
+                "message": (
+                    "No se pudieron cargar los modelos de Gemini. "
+                    f"{_format_llm_test_error(provider, '', e)}"
+                ),
+                "models": [],
+            }
+        return {"success": False, "message": f"No se pudieron cargar los modelos de {provider_name}: {_extract_http_error_message(e)}", "models": []}
 
 @router.post("/test/wordpress")
 async def test_wordpress(request: Request, db: Session = Depends(get_db)):

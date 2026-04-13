@@ -122,6 +122,8 @@ class ImageOcrExtractor(BaseExtractor):
             response = client.chat(prompt, images=[{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}])
 
             raw_text = response if response else "[Sin respuesta del modelo]"
+            if not str(raw_text).strip() or str(raw_text).strip() == "[Sin respuesta del modelo]":
+                return self._empty_ocr_result(file_path, file_id, "Sin respuesta del modelo")
             cleaned_info = self.cleaner.clean(raw_text)
 
             return ExtractionResult(
@@ -145,7 +147,7 @@ class ImageOcrExtractor(BaseExtractor):
             img = PILImage.open(file_path)
             text = pytesseract.image_to_string(img, lang='spa+cat')
             if not text.strip():
-                text = "[Imagen sin texto reconocible]"
+                return self._empty_ocr_result(file_path, file_id, "Imagen sin texto reconocible")
 
             cleaned_info = self.cleaner.clean(text)
 
@@ -172,7 +174,9 @@ class ImageOcrExtractor(BaseExtractor):
                 for line in result[0]:
                     if line and len(line) >= 2:
                         lines.append(line[1][0])
-            text = "\n".join(lines) if lines else "[Imagen sin texto reconocible]"
+            if not lines:
+                return self._empty_ocr_result(file_path, file_id, "Imagen sin texto reconocible")
+            text = "\n".join(lines)
             cleaned_info = self.cleaner.clean(text)
             return ExtractionResult(
                 source_file_id=self._uuid(file_id),
@@ -190,24 +194,32 @@ class ImageOcrExtractor(BaseExtractor):
     def _mock_extract(self, file_path: str, file_id: str) -> ExtractionResult:
         fname = os.path.basename(file_path)
         raw_text = f"[OCR deshabilitado para {fname}. Texto no extraido.]"
-        cleaned_info = self.cleaner.clean(raw_text)
-        return ExtractionResult(
-            source_file_id=self._uuid(file_id),
-            method=ExtractionMethod.OCR_IMAGE,
-            confidence=0.3 + cleaned_info["adjustment"],
-            raw_text=raw_text,
-            cleaned_text=cleaned_info["cleaned_text"]
-        )
-
-    def _mock_extract_with_error(self, file_path: str, file_id: str, error: str) -> ExtractionResult:
-        raw_text = f"[Error OCR en {os.path.basename(file_path)}: {error}]"
-        cleaned_info = self.cleaner.clean(raw_text)
         return ExtractionResult(
             source_file_id=self._uuid(file_id),
             method=ExtractionMethod.OCR_IMAGE,
             confidence=0.0,
             raw_text=raw_text,
-            cleaned_text=cleaned_info["cleaned_text"]
+            cleaned_text=""
+        )
+
+    def _mock_extract_with_error(self, file_path: str, file_id: str, error: str) -> ExtractionResult:
+        raw_text = f"[Error OCR en {os.path.basename(file_path)}: {error}]"
+        return ExtractionResult(
+            source_file_id=self._uuid(file_id),
+            method=ExtractionMethod.OCR_IMAGE,
+            confidence=0.0,
+            raw_text=raw_text,
+            cleaned_text=""
+        )
+
+    def _empty_ocr_result(self, file_path: str, file_id: str, reason: str) -> ExtractionResult:
+        raw_text = f"[{reason} en {os.path.basename(file_path)}]"
+        return ExtractionResult(
+            source_file_id=self._uuid(file_id),
+            method=ExtractionMethod.OCR_IMAGE,
+            confidence=0.0,
+            raw_text=raw_text,
+            cleaned_text=""
         )
 
 

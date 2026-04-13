@@ -1,5 +1,7 @@
 import json
 import logging
+import mimetypes
+from urllib.parse import urlparse
 from typing import Optional, List, Dict, Any
 
 from app.services.settings.service import SettingsResolver
@@ -40,6 +42,8 @@ class LlmClient:
     def _call_api(self, messages: List[Dict], max_tokens: int) -> str:
         if "openai" in self.provider.lower() or "anthropic" in self.provider.lower() or "groq" in self.provider.lower():
             return self._call_openai_compatible(messages, max_tokens)
+        if "gemini" in self.provider.lower():
+            return self._call_gemini(messages, max_tokens)
 
         raise ValueError(f"Proveedor LLM no soportado: {self.provider}")
 
@@ -75,6 +79,82 @@ class LlmClient:
         if choices:
             return choices[0].get("message", {}).get("content", "")
         return ""
+
+    def _call_gemini(self, messages: List[Dict], max_tokens: int) -> str:
+        import httpx
+
+        model = self.model or "gemini-2.0-flash"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+        payload = {
+            "contents": self._gemini_contents_from_messages(messages),
+            "generationConfig": {
+                "temperature": self.temperature,
+                "maxOutputTokens": max_tokens,
+            },
+        }
+
+        system_instruction = self._extract_system_message(messages)
+        if system_instruction:
+            payload["systemInstruction"] = {
+                "parts": [{"text": system_instruction}]
+            }
+
+        resp = httpx.post(url, json=payload, headers={"content-type": "application/json"}, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return ""
+
+        parts = candidates[0].get("content", {}).get("parts", [])
+        texts = [part.get("text", "") for part in parts if part.get("text")]
+        return "\n".join(texts).strip()
+
+    def _gemini_contents_from_messages(self, messages: List[Dict]) -> List[Dict[str, Any]]:
+        contents = []
+        for message in messages:
+            if message.get("role") == "system":
+                continue
+
+            role = "model" if message.get("role") == "assistant" else "user"
+            content = message.get("content", "")
+            parts = []
+
+            if isinstance(content, list):
+                for item in content:
+                    if item.get("type") == "text":
+                        parts.append({"text": item.get("text", "")})
+                    elif item.get("type") == "image_url":
+                        inline_part = self._gemini_inline_image_part(item.get("image_url", {}).get("url", ""))
+                        if inline_part:
+                            parts.append(inline_part)
+            elif isinstance(content, str):
+                parts.append({"text": content})
+
+            if parts:
+                contents.append({"role": role, "parts": parts})
+
+        return contents or [{"role": "user", "parts": [{"text": ""}]}]
+
+    def _extract_system_message(self, messages: List[Dict]) -> str:
+        for message in messages:
+            if message.get("role") == "system":
+                return str(message.get("content", "") or "")
+        return ""
+
+    def _gemini_inline_image_part(self, url: str) -> Optional[Dict[str, Any]]:
+        if not url:
+            return None
+
+        if url.startswith("data:"):
+            header, _, data = url.partition(",")
+            mime_type = header.split(";")[0].replace("data:", "") or "image/jpeg"
+            return {"inline_data": {"mime_type": mime_type, "data": data}}
+
+        parsed = urlparse(url)
+        mime_type, _ = mimetypes.guess_type(parsed.path)
+        return {"file_data": {"mime_type": mime_type or "image/jpeg", "file_uri": url}}
 
 
 def get_active_llm_client() -> Optional[LlmClient]:

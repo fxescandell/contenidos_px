@@ -95,21 +95,25 @@ class FlowExporter:
 
                 if optimized_local_path and os.path.exists(optimized_local_path):
                     if mode == "local":
-                        self._copy_local_asset(plan.get("optimized_remote_path", ""), optimized_local_path)
+                        optimized_destination = self._copy_local_asset(plan.get("optimized_remote_path", ""), optimized_local_path)
+                        self._cleanup_temp_asset(optimized_local_path, optimized_destination)
                     else:
                         with open(optimized_local_path, "rb") as f:
                             ok, msg = self._upload_ftp(plan.get("optimized_remote_path", ""), f.read())
                         if not ok:
                             return False, msg, uploaded
+                        self._cleanup_temp_asset(optimized_local_path)
 
                 if thumbnail_local_path and os.path.exists(thumbnail_local_path):
                     if mode == "local":
-                        self._copy_local_asset(plan.get("thumbnail_remote_path", ""), thumbnail_local_path)
+                        thumbnail_destination = self._copy_local_asset(plan.get("thumbnail_remote_path", ""), thumbnail_local_path)
+                        self._cleanup_temp_asset(thumbnail_local_path, thumbnail_destination)
                     else:
                         with open(thumbnail_local_path, "rb") as f:
                             ok, msg = self._upload_ftp(plan.get("thumbnail_remote_path", ""), f.read())
                         if not ok:
                             return False, msg, uploaded
+                        self._cleanup_temp_asset(thumbnail_local_path)
 
                 uploaded.append(plan)
             except Exception as e:
@@ -117,12 +121,38 @@ class FlowExporter:
 
         return True, f"{len(uploaded)} imagen(es) subida(s)", uploaded
 
-    def _copy_local_asset(self, remote_like_path: str, local_source_path: str) -> None:
+    def _copy_local_asset(self, remote_like_path: str, local_source_path: str) -> str:
         base = self._get_local_outfolder_base()
         clean_rel = remote_like_path.lstrip("/") if remote_like_path else ""
         destination = os.path.join(base, clean_rel) if clean_rel else os.path.join(base, os.path.basename(local_source_path))
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         shutil.copy2(local_source_path, destination)
+        return destination
+
+    def _cleanup_temp_asset(self, local_source_path: str, destination_path: Optional[str] = None) -> None:
+        if not local_source_path or not os.path.exists(local_source_path):
+            return
+
+        export_base = SettingsResolver.get("export_output_path") or "/tmp/editorial_export"
+        source_abs = os.path.abspath(local_source_path)
+        export_base_abs = os.path.abspath(export_base)
+        destination_abs = os.path.abspath(destination_path) if destination_path else None
+
+        try:
+            common = os.path.commonpath([export_base_abs, source_abs])
+        except ValueError:
+            return
+
+        if common != export_base_abs or source_abs == export_base_abs:
+            return
+
+        if destination_abs and source_abs == destination_abs:
+            return
+
+        try:
+            os.remove(source_abs)
+        except Exception:
+            pass
 
     def upload_to_outfolder(self, municipality: str, filename: str, file_content: str, content_label: str = "JSON") -> Tuple[bool, str]:
         mode = self._get_active_mode()
@@ -162,7 +192,7 @@ class FlowExporter:
             if not os.path.isdir(source_dir):
                 return False, f"Ruta no es un directorio: {source_dir}"
 
-            processed_dir = os.path.join(source_dir, "..", "processed")
+            processed_dir = os.path.join(source_dir, "processed")
             os.makedirs(processed_dir, exist_ok=True)
 
             moved = []
@@ -171,9 +201,14 @@ class FlowExporter:
                 if not os.path.exists(src):
                     continue
                 dst = os.path.join(processed_dir, fname)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
                 if os.path.exists(dst):
-                    base, ext = os.path.splitext(fname)
-                    dst = os.path.join(processed_dir, f"{base}_{int(os.path.getmtime(src))}{ext}")
+                    rel_dir = os.path.dirname(fname)
+                    base_name = os.path.basename(fname)
+                    base, ext = os.path.splitext(base_name)
+                    unique_name = f"{base}_{int(os.path.getmtime(src))}{ext}"
+                    dst = os.path.join(processed_dir, rel_dir, unique_name) if rel_dir else os.path.join(processed_dir, unique_name)
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.move(src, dst)
                 moved.append(fname)
 

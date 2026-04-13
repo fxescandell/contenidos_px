@@ -44,6 +44,8 @@
         .path-status.not-found { background: #f8d7da; color: #721c24; }
         .path-status.no-perm { background: #fff3cd; color: #856404; }
         .path-status.loading { background: #f0f0f0; color: #888; }
+        .check-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid #e8e8e8; border-radius: 6px; background: #fafafa; }
+        .check-row input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; }
     </style>
 </head>
 <body>
@@ -107,6 +109,18 @@
                             <button type="button" class="btn btn-test btn-sm" onclick="verifyPath(document.getElementById('input-log_folder_path'))">Verificar</button>
                         </div>
                         <span id="path-status-log_folder_path" class="path-status" style="display:none;"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Limpieza automatica</label>
+                        <label class="check-row">
+                            <input type="hidden" name="setting_cleanup_working_folder_after_success" value="false">
+                            <input type="checkbox" name="setting_cleanup_working_folder_after_success" value="true" {% if values.cleanup_working_folder_after_success == True or values.cleanup_working_folder_after_success == 'true' %}checked{% endif %}>
+                            <span>
+                                Borrar carpetas finalizadas de `working_folder_path`.
+                                <span class="help-text">Se eliminan al terminar correctamente un lote y tambien al arrancar la app si quedaron carpetas antiguas de lotes ya finalizados.</span>
+                            </span>
+                        </label>
                     </div>
                 </div>
 

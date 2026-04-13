@@ -9,6 +9,7 @@ from app.schemas.inbox import (
     InboxListResult, InboxFetchResult, InboxEntry
 )
 from app.services.inbox.clients.base import BaseRemoteInboxClient
+from app.services.path_filters import is_ignored_source_folder
 
 class LocalFolderInboxClient(BaseRemoteInboxClient):
     
@@ -81,6 +82,9 @@ class LocalFolderInboxClient(BaseRemoteInboxClient):
             for item in target_path.iterdir():
                 if self.settings.ignore_hidden_files and item.name.startswith('.'):
                     continue
+
+                if item.is_dir() and is_ignored_source_folder(item.name):
+                    continue
                     
                 is_dir = item.is_dir()
                 if not is_dir and not self._is_allowed_extension(item.name):
@@ -143,7 +147,9 @@ class LocalFolderInboxClient(BaseRemoteInboxClient):
                 for root, dirs, files in os.walk(target_path):
                     if self.settings.ignore_hidden_files:
                         dirs[:] = [d for d in dirs if not d.startswith('.')]
-                        
+
+                    dirs[:] = [d for d in dirs if not is_ignored_source_folder(d)]
+                         
                     root_path = Path(root)
                     rel_to_target = root_path.relative_to(target_path)
                     

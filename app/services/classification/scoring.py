@@ -5,6 +5,15 @@ from app.schemas.classification import (
 from app.schemas.all_schemas import ExtractionResult, GroupingResult
 from app.core.enums import ReviewReason
 
+
+def get_informative_extractions(extractions: List[ExtractionResult]) -> List[ExtractionResult]:
+    return [extraction for extraction in extractions if str(extraction.cleaned_text or "").strip()]
+
+
+def get_average_extraction_confidence(extractions: List[ExtractionResult]) -> float:
+    informative = get_informative_extractions(extractions)
+    return sum(e.confidence for e in informative) / len(informative) if informative else 0.0
+
 class ConfidenceScorer:
     def calculate_overall_confidence(self, 
                                      grouping: GroupingResult, 
@@ -14,7 +23,7 @@ class ConfidenceScorer:
                                      sub_class: SubtypeClassification) -> Tuple[float, str]:
         
         # Calculate base extraction confidence
-        ext_conf = sum(e.confidence for e in extractions) / len(extractions) if extractions else 0.0
+        ext_conf = get_average_extraction_confidence(extractions)
         
         # Calculate base classification confidence
         class_conf = (mun_class.confidence + cat_class.confidence + sub_class.confidence) / 3
@@ -62,11 +71,11 @@ class ReviewDecisionService:
         if grouping.confidence < 0.6:
             reasons.append(ReviewReason.WEAK_GROUPING)
             
-        avg_ext_conf = sum(e.confidence for e in extractions) / len(extractions) if extractions else 0.0
+        avg_ext_conf = get_average_extraction_confidence(extractions)
         if avg_ext_conf < 0.6:
             reasons.append(ReviewReason.LOW_EXTRACTION_CONFIDENCE)
             
-        if not extractions:
+        if not get_informative_extractions(extractions):
             reasons.append(ReviewReason.INSUFFICIENT_TEXT)
             
         requires_review = len(reasons) > 0 or confidence_band in ["MEDIUM", "LOW", "VERY_LOW"]

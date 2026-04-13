@@ -11,6 +11,7 @@ from app.schemas.inbox import (
     InboxListResult, InboxFetchResult, InboxEntry
 )
 from app.services.inbox.clients.base import BaseRemoteInboxClient
+from app.services.path_filters import is_ignored_source_folder
 
 class SftpRemoteInboxClient(BaseRemoteInboxClient):
     
@@ -106,9 +107,11 @@ class SftpRemoteInboxClient(BaseRemoteInboxClient):
                 for attr in sftp.listdir_attr(target_path):
                     if self.settings.ignore_hidden_files and attr.filename.startswith('.'):
                         continue
-                        
+                         
                     from stat import S_ISDIR
                     is_dir = S_ISDIR(attr.st_mode)
+                    if is_dir and is_ignored_source_folder(attr.filename):
+                        continue
                     
                     if not is_dir and not self._is_allowed_extension(attr.filename):
                         continue

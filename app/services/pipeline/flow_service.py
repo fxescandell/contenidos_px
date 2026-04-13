@@ -19,7 +19,9 @@ from app.services.images.processor import ImageProcessingService
 from app.services.export.builder import WordPressJsonExportBuilder
 from app.adapters.factory import AdapterFactory
 from app.services.pipeline.events import event_logger
+from app.services.path_filters import is_ignored_source_folder
 from app.services.settings.service import SettingsResolver
+from app.services.working_directory_cleanup import working_directory_cleanup_service
 from app.core.enums import EventLevel, CandidateGroupingStrategy
 from app.core.states import BatchStatus, CandidateStatus
 from app.db.repositories.all_repos import (
@@ -42,6 +44,7 @@ class FlowService:
         self.editorial_builder = EditorialBuilderService()
         self.image_processor = ImageProcessingService(export_dir)
         self.export_builder = WordPressJsonExportBuilder()
+        self.working_cleanup_service = working_directory_cleanup_service
 
     def resolve_source_info(self, flow: Flow) -> Dict[str, Any]:
         source_mode = SettingsResolver.get("active_source_mode", "smb") or "smb"
@@ -132,6 +135,8 @@ class FlowService:
             name = str(e)
             if name.startswith('.'):
                 continue
+            if is_ignored_source_folder(name):
+                continue
             try:
                 st = smb_stat(f"{current_unc}\\{name}")
                 is_dir = bool(st.st_file_attributes & 0x10)
@@ -207,7 +212,8 @@ class FlowService:
                 if not source_path or not os.path.exists(source_path):
                     return {"success": False, "message": f"Carpeta no encontrada: {source_path}"}
                 local_files = []
-                for root, _, files in os.walk(source_path):
+                for root, dirs, files in os.walk(source_path):
+                    dirs[:] = [directory for directory in dirs if not is_ignored_source_folder(directory)]
                     for filename in files:
                         if filename.startswith('.') or not filename.lower().endswith(SUPPORTED_EXTENSIONS):
                             continue
@@ -316,8 +322,13 @@ class FlowService:
                         "thumbnail_path": mapped.get("thumbnail_public_url") or image.thumbnail_path,
                     }))
 
-                combined_text = "\n".join([e.cleaned_text for e in extractions])
-                editorial = self.editorial_builder.build_editorial_content(classification, combined_text, editorial_images, {})
+                combined_text = "\n".join([e.cleaned_text for e in extractions if str(e.cleaned_text or "").strip()])
+                editorial = self.editorial_builder.build_editorial_content(
+                    classification,
+                    combined_text,
+                    editorial_images,
+                    {"featured_selection_images": processed_images},
+                )
 
                 canonical = canonical_content_repo.create(db, obj_in={
                     "candidate_id": candidate.id,
@@ -381,6 +392,7 @@ class FlowService:
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.REVIEW_REQUIRED})
             else:
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FINISHED})
+                self.working_cleanup_service.cleanup_batch(batch)
 
             self._move_processed_files(source_info, downloaded_files)
 

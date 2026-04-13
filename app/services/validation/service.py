@@ -3,6 +3,7 @@ from app.db.models import CanonicalContent
 from app.schemas.all_schemas import ValidationResult, ValidationIssue
 from app.core.enums import ValidationSeverity, ContentCategory, Municipality, ContentSubtype
 from app.services.base import BaseValidationService
+from app.services.categories.service import normalize_consells_type
 
 class CanonicalValidationService(BaseValidationService):
     def validate(self, content: CanonicalContent) -> ValidationResult:
@@ -57,6 +58,9 @@ class CanonicalValidationService(BaseValidationService):
             sf = content.structured_fields_json
             if not sf.get("consell_type"):
                 issues.append(ValidationIssue(severity=ValidationSeverity.ERROR, code="CONSELLS_MISSING_TYPE", message="Consells must have a consell_type"))
+                blocking_errors += 1
+            elif normalize_consells_type(sf.get("consell_type"), default="") != sf.get("consell_type"):
+                issues.append(ValidationIssue(severity=ValidationSeverity.ERROR, code="CONSELLS_INVALID_TYPE", message="Consells must use an allowed consell_type"))
                 blocking_errors += 1
 
         is_valid = blocking_errors == 0

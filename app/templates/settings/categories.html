@@ -44,7 +44,7 @@
 
             <div class="hint-box">
                 <strong>JSON estricto por categoria</strong>
-                <div class="desc" style="margin-bottom:8px;">Define aqui la estructura exacta del JSON que debe salir en cada categoria. Si hay ejemplo configurado, el sistema intentara respetarlo sin envolverlo ni cambiarle la forma.</div>
+                <div class="desc" style="margin-bottom:8px;">Define aqui la estructura exacta del JSON que debe salir en cada categoria. Si hay ejemplo configurado, el sistema respetara de forma estricta su raiz, orden de claves, nombres de campo y tipos, sin envolverlo ni cambiarle la forma.</div>
                 <div class="desc" style="margin-bottom:0;">Puedes usar placeholders opcionales como <span class="code-inline">{{title}}</span>, <span class="code-inline">{{summary}}</span>, <span class="code-inline">{{body_html}}</span>, <span class="code-inline">{{municipality}}</span>, <span class="code-inline">{{category}}</span>, <span class="code-inline">{{event_date}}</span> o <span class="code-inline">{{search_dates}}</span>.</div>
             </div>
 
@@ -65,7 +65,7 @@
                     <div class="form-group">
                         <label>Indicaciones para el modelo</label>
                         <textarea class="instructions" spellcheck="false">{{ item.instructions or '' }}</textarea>
-                        <span class="help-text">Aqui puedes afinar reglas de extraccion, tono, obligatoriedad de campos o como interpretar este tipo de contenido.</span>
+                        <span class="help-text">Aqui puedes afinar reglas de extraccion, tono, obligatoriedad de campos o como interpretar este tipo de contenido. La regla base de respetar exactamente la estructura del JSON se aplica siempre.</span>
                     </div>
                 </div>
                 {% endfor %}

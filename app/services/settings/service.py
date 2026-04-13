@@ -212,6 +212,7 @@ class SettingsService:
 
             # Rutas locales
             {"key": "working_folder_path", "value": "/tmp/editorial_working", "type": SettingType.STRING, "cat": "paths", "desc": "Carpeta temporal donde se descomprimen y procesan los archivos del pipeline"},
+            {"key": "cleanup_working_folder_after_success", "value": True, "type": SettingType.BOOLEAN, "cat": "paths", "desc": "Borra automaticamente la carpeta temporal del lote cuando el proceso termina correctamente"},
             {"key": "export_output_path", "value": "/tmp/editorial_export", "type": SettingType.STRING, "cat": "paths", "desc": "Carpeta donde se guardan los JSON exportados antes de enviar al outfolder"},
             {"key": "temp_folder_path", "value": "/tmp/editorial_temp", "type": SettingType.STRING, "cat": "paths", "desc": "Carpeta para archivos temporales (se limpia automaticamente)"},
             {"key": "log_folder_path", "value": "logs", "type": SettingType.STRING, "cat": "paths", "desc": "Carpeta donde se guardan los logs de la aplicacion"},

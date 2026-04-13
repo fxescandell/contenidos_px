@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 from app.adapters.base import BaseWordPressAdapter
 from app.db.models import CanonicalContent
 from app.rules.municipalities import MunicipalityRuleset
+from app.services.categories.service import normalize_consells_type
 
 class ConsellsWordPressAdapter(BaseWordPressAdapter):
     def map_municipality(self, canonical_content: CanonicalContent) -> Dict[str, List[str]]:
@@ -12,5 +13,5 @@ class ConsellsWordPressAdapter(BaseWordPressAdapter):
     def build_meta_fields(self, canonical_content: CanonicalContent) -> Dict[str, Any]:
         sf = canonical_content.structured_fields_json
         return {
-            "consell": sf.get("consell_type", "Professionals")
+            "consell": normalize_consells_type(sf.get("consell_type"))
         }

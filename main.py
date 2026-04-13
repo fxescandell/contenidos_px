@@ -16,6 +16,7 @@ from app.api.routes.flows import router as flows_router
 from app.services.watcher.service import WatcherService
 from app.services.pipeline.orchestrator import PipelineOrchestrator
 from app.services.settings.service import SettingsResolver, SettingsService
+from app.services.working_directory_cleanup import working_directory_cleanup_service
 
 # Initialize DB tables
 Base.metadata.create_all(bind=engine)
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
         with SessionLocal() as db:
             SettingsService.initialize_defaults(db)
             SettingsResolver.reload(db)
+            working_directory_cleanup_service.cleanup_finished_batches(db)
             watcher_enabled = watcher_enabled and bool(SettingsResolver.get("enable_watcher", True))
     except Exception as e:
         print(f"No se pudo leer la configuracion inicial del watcher: {e}")
