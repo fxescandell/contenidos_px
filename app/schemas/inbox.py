@@ -23,7 +23,7 @@ class InboxConnectionSettings(BaseModel):
     recursive_scan: bool = False
     max_depth: int = 1
     ignore_hidden_files: bool = True
-    extensions_allowlist: List[str] = Field(default_factory=lambda: [".pdf", ".docx", ".jpg", ".jpeg", ".png"])
+    extensions_allowlist: List[str] = Field(default_factory=lambda: [".pdf", ".docx", ".md", ".markdown", ".txt", ".jpg", ".jpeg", ".png"])
     
     use_key_auth: bool = False
     private_key_path: Optional[str] = None

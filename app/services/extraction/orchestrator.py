@@ -90,6 +90,70 @@ class RealDocxExtractor(BaseExtractor):
         )
 
 
+class RealTextExtractor(BaseExtractor):
+    def extract(self, file_path: str, file_id: str) -> ExtractionResult:
+        raw_text = ""
+        extension = os.path.splitext(file_path)[1].lower()
+        for encoding in ("utf-8", "utf-8-sig", "latin-1"):
+            try:
+                with open(file_path, "r", encoding=encoding) as f:
+                    raw_text = f.read()
+                break
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                raw_text = f"[Error extrayendo texto: {e}]"
+                break
+
+        if not str(raw_text).strip():
+            raw_text = "[Archivo de texto sin contenido]"
+
+        normalized_text = self._normalize_markdown(raw_text) if extension in (".md", ".markdown") else raw_text
+
+        cleaned_info = self.cleaner.clean(normalized_text)
+
+        return ExtractionResult(
+            source_file_id=self._uuid(file_id),
+            method=ExtractionMethod.TEXT_FILE,
+            confidence=0.96 + cleaned_info["adjustment"],
+            raw_text=raw_text,
+            cleaned_text=cleaned_info["cleaned_text"]
+        )
+
+    def _normalize_markdown(self, text: str) -> str:
+        normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+
+        normalized = re.sub(r"\A---\n.*?\n---\n", "", normalized, flags=re.DOTALL)
+        normalized = re.sub(r"^(#{1,6})\s+(.+)$", lambda m: self._markdown_heading_to_marker(m.group(1), m.group(2)), normalized, flags=re.MULTILINE)
+        normalized = re.sub(r"```[\s\S]*?```", lambda match: self._strip_code_fence(match.group(0)), normalized)
+        normalized = re.sub(r"`([^`]+)`", r"\1", normalized)
+        normalized = re.sub(r"!\[([^\]]*)\]\([^\)]+\)", r"\1", normalized)
+        normalized = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", normalized)
+        normalized = re.sub(r"^>\s?", "", normalized, flags=re.MULTILINE)
+        normalized = re.sub(r"^\s*[-*+]\s+(.+)$", r"\n\n[[LI]] \1\n", normalized, flags=re.MULTILINE)
+        normalized = re.sub(r"^\s*\d+\.\s+(.+)$", r"\n\n[[LI]] \1\n", normalized, flags=re.MULTILINE)
+        normalized = re.sub(r"^(?:---|\*\*\*|___)\s*$", "", normalized, flags=re.MULTILINE)
+        normalized = re.sub(r"\*\*([^*]+)\*\*", r"\1", normalized)
+        normalized = re.sub(r"__([^_]+)__", r"\1", normalized)
+        normalized = re.sub(r"\*([^*]+)\*", r"\1", normalized)
+        normalized = re.sub(r"_([^_]+)_", r"\1", normalized)
+        normalized = re.sub(r"~~([^~]+)~~", r"\1", normalized)
+        normalized = re.sub(r"\|", " ", normalized)
+        normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+        return normalized.strip()
+
+    def _markdown_heading_to_marker(self, hashes: str, text: str) -> str:
+        level = min(len(hashes), 6)
+        clean_text = re.sub(r"\s+", " ", str(text or "")).strip()
+        return f"\n[[H{level}]] {clean_text}\n"
+
+    def _strip_code_fence(self, fenced_block: str) -> str:
+        lines = fenced_block.splitlines()
+        if len(lines) >= 2:
+            return "\n".join(lines[1:-1])
+        return fenced_block
+
+
 class ImageOcrExtractor(BaseExtractor):
     def extract(self, file_path: str, file_id: str) -> ExtractionResult:
         global OCR_ENGINE
@@ -227,6 +291,7 @@ class ExtractionOrchestrator:
     def __init__(self):
         self.pdf_extractor = RealPdfExtractor()
         self.docx_extractor = RealDocxExtractor()
+        self.text_extractor = RealTextExtractor()
         self.image_extractor = ImageOcrExtractor()
 
     def process_files(self, files_info: List[Dict[str, Any]]) -> List[ExtractionResult]:
@@ -239,6 +304,8 @@ class ExtractionOrchestrator:
                 results.append(self.pdf_extractor.extract(path, file_id))
             elif path.endswith(".docx"):
                 results.append(self.docx_extractor.extract(path, file_id))
+            elif path.endswith((".md", ".markdown", ".txt")):
+                results.append(self.text_extractor.extract(path, file_id))
             elif path.endswith((".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp")):
                 results.append(self.image_extractor.extract(path, file_id))
 

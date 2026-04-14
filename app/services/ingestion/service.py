@@ -90,6 +90,9 @@ class IngestionService:
         mime_types = {
             ".pdf": "application/pdf",
             ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".md": "text/markdown",
+            ".markdown": "text/markdown",
+            ".txt": "text/plain",
             ".jpg": "image/jpeg",
             ".jpeg": "image/jpeg",
             ".png": "image/png"

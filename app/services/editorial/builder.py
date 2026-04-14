@@ -24,6 +24,8 @@ from app.services.categories.service import (
 )
 
 logger = logging.getLogger(__name__)
+MARKDOWN_HEADING_RE = re.compile(r"^\[\[H([1-6])\]\]\s*(.+)$")
+MARKDOWN_LIST_RE = re.compile(r"^\[\[LI\]\]\s*(.+)$")
 
 
 class EditorialBuilderService:
@@ -41,7 +43,8 @@ class EditorialBuilderService:
         warnings = []
         errors = []
 
-        source_context = self._prepare_source_text(extracted_text)
+        effective_text = self._build_effective_source_text(extracted_text, metadata, images)
+        source_context = self._prepare_source_text(effective_text)
         prepared_text = source_context["cleaned_text"]
 
         if not prepared_text or not prepared_text.strip():
@@ -120,6 +123,57 @@ class EditorialBuilderService:
             )
 
         return self._fallback_build(prepared_text, classification, images, warnings, errors, category_config, source_context)
+
+    def _build_effective_source_text(
+        self,
+        extracted_text: str,
+        metadata: Dict[str, Any],
+        images: List[ImageProcessingResult],
+    ) -> str:
+        primary_text = str(extracted_text or "").strip()
+        if primary_text:
+            return primary_text
+
+        candidates: List[str] = []
+        vision_context = self._clean_text_line(metadata.get("vision_context_text", ""))
+        if vision_context:
+            candidates.append(vision_context)
+
+        image_name_context = self._clean_text_line(metadata.get("image_name_context", ""))
+        if image_name_context:
+            candidates.append(self._humanize_image_context(image_name_context))
+
+        if not candidates and images:
+            file_names = []
+            for image in images:
+                path = image.optimized_path or image.thumbnail_path or ""
+                name = self._extract_file_name(path)
+                if name:
+                    file_names.append(os.path.splitext(name)[0])
+            if file_names:
+                candidates.append(self._humanize_image_context("\n".join(file_names)))
+
+        return "\n\n".join(part for part in candidates if part).strip()
+
+    def _humanize_image_context(self, text: str) -> str:
+        lines = []
+        for raw_line in str(text or "").splitlines():
+            clean_line = self._clean_text_line(raw_line)
+            if not clean_line:
+                continue
+            file_name = self._extract_file_name(clean_line)
+            stem = os.path.splitext(file_name or clean_line)[0]
+            stem = re.sub(r"(?:_opt|_thumb|scaled-\d+|scaled)$", "", stem, flags=re.IGNORECASE)
+            stem = re.sub(r"[_-]+", " ", stem)
+            stem = re.sub(r"\s+", " ", stem).strip()
+            if not stem:
+                continue
+            if stem.upper() == stem:
+                stem = stem.title()
+            else:
+                stem = stem[0].upper() + stem[1:]
+            lines.append(stem)
+        return "\n".join(lines)
 
     def _try_llm(
         self,
@@ -1086,7 +1140,9 @@ class EditorialBuilderService:
             if self._is_source_section_heading(chunk, category):
                 if current_section:
                     html_parts.extend(current_section)
-                current_section = [f"<h3>{html.escape(self._format_source_heading(chunk))}</h3>"]
+                heading_level = self._get_source_heading_level(chunk)
+                tag = "h2" if heading_level <= 2 else "h3"
+                current_section = [f"<{tag}>{html.escape(self._format_source_heading(chunk))}</{tag}>"]
                 continue
 
             paragraph_html = f"<p>{html.escape(chunk)}</p>"
@@ -1123,6 +1179,10 @@ class EditorialBuilderService:
             return block
         if block.startswith("<p"):
             plain = self._clean_text_line(self._strip_html(block))
+            heading_level = self._get_source_heading_level(plain)
+            if heading_level:
+                tag = "h2" if heading_level <= 2 else "h3"
+                return f'<{tag}>{html.escape(self._format_source_heading(plain))}</{tag}>'
             if self._looks_like_visual_heading(plain):
                 return f'<h2>{html.escape(plain)}</h2>'
             return self._emphasize_leading_label(block)
@@ -1135,22 +1195,48 @@ class EditorialBuilderService:
 
         enhanced = []
         heading_count = 0
-        for block in blocks:
+        index = 0
+        while index < len(blocks):
+            block = blocks[index]
+            list_item = self._extract_markdown_list_item(block)
+            if list_item:
+                items = [list_item]
+                index += 1
+                while index < len(blocks):
+                    next_item = self._extract_markdown_list_item(blocks[index])
+                    if not next_item:
+                        break
+                    items.append(next_item)
+                    index += 1
+                enhanced.append(self._render_html_list(items))
+                continue
+
             if block.startswith("<p"):
                 plain = self._clean_text_line(self._strip_html(block))
+                heading_level = self._get_source_heading_level(plain)
+                if heading_level:
+                    tag = "h2" if heading_level <= 2 else "h3"
+                    enhanced.append(f'<{tag}>{html.escape(self._format_source_heading(plain))}</{tag}>')
+                    heading_count += 1
+                    index += 1
+                    continue
                 if self._looks_like_visual_heading(plain):
                     tag = "h2" if heading_count == 0 else "h3"
                     enhanced.append(f'<{tag}>{html.escape(plain)}</{tag}>')
                     heading_count += 1
+                    index += 1
                     continue
                 block = self._emphasize_leading_label(block)
             enhanced.append(block)
+            index += 1
         return "\n".join(enhanced)
 
     def _looks_like_visual_heading(self, text: str) -> bool:
         clean = self._clean_text_line(text)
         if not clean or len(clean) > 95:
             return False
+        if self._get_source_heading_level(clean):
+            return True
         if re.search(r"\b\d{1,2}(?::\d{2})?\s*h\b", clean.lower()):
             return False
         if clean.endswith(('.', '!', '?')):
@@ -1172,6 +1258,21 @@ class EditorialBuilderService:
             return f"<p><strong>{html.escape(label)}:</strong>{rest}</p>"
 
         return re.sub(r"(?is)^<p>\s*([^:<]{2,45}):\s*(.+)</p>$", replace, block)
+
+    def _extract_markdown_list_item(self, block: str) -> str:
+        if not block.startswith("<p"):
+            return ""
+        plain = self._clean_text_line(self._strip_html(block))
+        match = MARKDOWN_LIST_RE.match(plain)
+        return self._clean_text_line(match.group(1)) if match else ""
+
+    def _render_html_list(self, items: List[str]) -> str:
+        rendered_items = "".join(f"<li>{html.escape(item)}</li>" for item in items if item)
+        return f"<ul>{rendered_items}</ul>"
+
+    def _get_source_heading_level(self, text: str) -> int:
+        match = MARKDOWN_HEADING_RE.match(self._clean_text_line(text))
+        return int(match.group(1)) if match else 0
 
     def _render_agenda_trailing_blocks(self, trailing_chunks: List[str]) -> List[str]:
         if not trailing_chunks:
@@ -1261,6 +1362,9 @@ class EditorialBuilderService:
 
     def _format_source_heading(self, text: str) -> str:
         clean = self._clean_text_line(text)
+        marker_match = MARKDOWN_HEADING_RE.match(clean)
+        if marker_match:
+            clean = self._clean_text_line(marker_match.group(2))
         alpha_chars = [char for char in clean if char.isalpha()]
         if alpha_chars and sum(1 for char in alpha_chars if char.isupper()) / len(alpha_chars) >= 0.7:
             return clean.lower().capitalize()
@@ -1325,7 +1429,7 @@ class EditorialBuilderService:
 
     def _split_html_blocks(self, body_html: str) -> List[str]:
         block_pattern = re.compile(
-            r"(?is)<(?:h[1-6]|p|ul|ol|blockquote|figure|div)(?:\s[^>]*)?>.*?</(?:h[1-6]|p|ul|ol|blockquote|figure|div)>"
+            r"(?is)<(h[1-6]|p|ul|ol|blockquote|figure|div)(?:\s[^>]*)?>.*?</\1>"
         )
         return [match.group(0).strip() for match in block_pattern.finditer(body_html) if match.group(0).strip()]
 

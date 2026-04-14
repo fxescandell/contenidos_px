@@ -23,6 +23,9 @@ from app.services.pipeline.events import event_logger
 from app.services.settings.service import SettingsResolver
 from app.services.working_directory_cleanup import working_directory_cleanup_service
 
+DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".md", ".markdown", ".txt")
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
+
 class PipelineOrchestrator:
     def __init__(self, config):
         self.config = config
@@ -85,8 +88,8 @@ class PipelineOrchestrator:
                 
                 # Assign files
                 assigned_files = [f for f in files if f.id in [a["id"] for a in group.assigned_files]]
-                docs = [f for f in assigned_files if f.extension in [".pdf", ".docx"]]
-                imgs = [f for f in assigned_files if f.extension in [".jpg", ".jpeg", ".png"]]
+                docs = [f for f in assigned_files if f.extension in DOCUMENT_EXTENSIONS]
+                imgs = [f for f in assigned_files if f.extension in IMAGE_EXTENSIONS]
                 
                 # 4. Extraction
                 extractions = self.extraction_orchestrator.process_files(
@@ -121,6 +124,10 @@ class PipelineOrchestrator:
                     {
                         "featured_selection_images": processed_images,
                         "vision_context_text": vision_text,
+                        "image_name_context": "\n".join([
+                            getattr(image, "optimized_path", "") or getattr(image, "original_path", "")
+                            for image in processed_images
+                        ]),
                     },
                 )
                 event_logger.log(db, EventLevel.INFO, "FINAL_REVIEW_COMPLETED", "EDITORIAL", "Revision final completada", batch_id=batch.id, candidate_id=candidate.id, payload={"notes": len(editorial.structured_fields.get("final_review_notes", []))})

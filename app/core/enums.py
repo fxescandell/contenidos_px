@@ -46,6 +46,7 @@ class ReviewReason(str, Enum):
 class ExtractionMethod(str, Enum):
     NATIVE_PDF = "NATIVE_PDF"
     DOCX_PARSER = "DOCX_PARSER"
+    TEXT_FILE = "TEXT_FILE"
     OCR_PDF = "OCR_PDF"
     OCR_IMAGE = "OCR_IMAGE"
     UNKNOWN = "UNKNOWN"

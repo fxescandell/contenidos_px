@@ -38,7 +38,7 @@ class FolderGroupingStrategy(BaseGroupingStrategy):
             for idx, f in enumerate(group_files):
                 assigned.append({
                     "id": f.id,
-                    "role": "PRIMARY_DOCUMENT" if f.extension.lower() in [".docx", ".pdf"] else "PRIMARY_IMAGE",
+                    "role": "PRIMARY_DOCUMENT" if f.extension.lower() in [".docx", ".pdf", ".md", ".markdown", ".txt"] else "PRIMARY_IMAGE",
                     "sort_order": idx,
                     "confidence": 0.9 if key != "root" else 0.5
                 })

@@ -29,7 +29,9 @@ from app.db.repositories.all_repos import (
     canonical_content_repo, processing_event_repo
 )
 
-SUPPORTED_EXTENSIONS = ('.pdf', '.docx', '.jpg', '.jpeg', '.png')
+SUPPORTED_EXTENSIONS = ('.pdf', '.docx', '.md', '.markdown', '.txt', '.jpg', '.jpeg', '.png')
+DOCUMENT_EXTENSIONS = ('.pdf', '.docx', '.md', '.markdown', '.txt')
+IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png')
 
 
 class FlowService:
@@ -275,15 +277,15 @@ class FlowService:
                     "source_mode": source_info["mode"],
                     "resolved_path": source_info["resolved_path"],
                     "files_count": len(source_files),
-                    "documents_count": len([f for f in source_files if f.extension in [".pdf", ".docx"]]),
-                    "images_count": len([f for f in source_files if f.extension in [".jpg", ".jpeg", ".png"]]),
+                    "documents_count": len([f for f in source_files if f.extension in DOCUMENT_EXTENSIONS]),
+                    "images_count": len([f for f in source_files if f.extension in IMAGE_EXTENSIONS]),
                     "ocr_engine": SettingsResolver.get("ocr_engine", "disabled"),
                     "llm": self._get_llm_activity_info(),
                 },
             )
 
-            docs = [f for f in source_files if f.extension in [".pdf", ".docx"]]
-            imgs = [f for f in source_files if f.extension in [".jpg", ".jpeg", ".png"]]
+            docs = [f for f in source_files if f.extension in DOCUMENT_EXTENSIONS]
+            imgs = [f for f in source_files if f.extension in IMAGE_EXTENSIONS]
 
             if not docs and not imgs:
                 source_batch_repo.update(db, db_obj=batch, obj_in={"status": BatchStatus.FAILED, "error_message": "No hay documentos ni imagenes procesables"})
@@ -319,8 +321,8 @@ class FlowService:
             for group in groups:
                 assigned_ids = [item.get("id") for item in group.assigned_files]
                 assigned_files = [f for f in source_files if f.id in assigned_ids]
-                group_docs = [f for f in assigned_files if f.extension in [".pdf", ".docx"]]
-                group_imgs = [f for f in assigned_files if f.extension in [".jpg", ".jpeg", ".png"]]
+                group_docs = [f for f in assigned_files if f.extension in DOCUMENT_EXTENSIONS]
+                group_imgs = [f for f in assigned_files if f.extension in IMAGE_EXTENSIONS]
 
                 if not group_docs and not group_imgs:
                     continue
@@ -432,6 +434,10 @@ class FlowService:
                     {
                         "featured_selection_images": processed_images,
                         "vision_context_text": vision_text,
+                        "image_name_context": "\n".join([
+                            os.path.splitext(os.path.basename(f.relative_path or f.original_file_name or ""))[0]
+                            for f in group_imgs
+                        ]),
                     },
                 )
                 event_logger.log(

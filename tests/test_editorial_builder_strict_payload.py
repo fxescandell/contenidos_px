@@ -2,6 +2,8 @@ from uuid import uuid4
 
 from app.services.editorial.builder import EditorialBuilderService
 from app.schemas.all_schemas import ImageProcessingResult
+from app.schemas.classification import FinalClassificationResult
+from app.core.enums import Municipality, ContentCategory, ContentSubtype
 
 
 def test_merge_strict_payload_fills_blank_featured_image_from_template():
@@ -254,6 +256,30 @@ def test_enhance_html_structure_adds_headings_and_bold_labels():
     assert "<strong>Patrocinadors:</strong>" in enhanced
 
 
+def test_enhance_html_structure_promotes_markdown_heading_markers():
+    service = EditorialBuilderService()
+
+    enhanced = service._enhance_html_structure(
+        "<p>[[H2]] Programa del cap de setmana</p><p>Text introductori.</p><p>[[H3]] Activitats familiars</p><p>Detall de les activitats.</p>",
+        "AGENDA",
+    )
+
+    assert "<h2>Programa del cap de setmana</h2>" in enhanced
+    assert "<h3>Activitats familiars</h3>" in enhanced
+
+
+def test_enhance_html_structure_groups_markdown_list_markers_into_ul():
+    service = EditorialBuilderService()
+
+    enhanced = service._enhance_html_structure(
+        "<p>[[LI]] Entrada gratuïta</p><p>[[LI]] Inscripció prèvia</p><p>Paragraf final.</p>",
+        "AGENDA",
+    )
+
+    assert "<ul><li>Entrada gratuïta</li><li>Inscripció prèvia</li></ul>" in enhanced
+    assert "<p>Paragraf final.</p>" in enhanced
+
+
 def test_assign_activity_image_refs_matches_by_filename_tokens():
     service = EditorialBuilderService()
     activity_title_image = ImageProcessingResult(
@@ -434,3 +460,46 @@ def test_build_source_preserving_agenda_body_keeps_ai_intro_blocks_and_program()
     assert 'class="agenda-title"' in body_html
     assert 'Benvinguda' in body_html
     assert 'Concert acústic' in body_html
+
+
+def test_build_editorial_content_uses_image_name_context_when_no_text_was_extracted():
+    service = EditorialBuilderService()
+    service._try_llm = lambda *args, **kwargs: None
+    service.final_review_service.review_content = lambda **kwargs: {
+        "title": kwargs["draft_title"],
+        "summary": kwargs["draft_summary"],
+        "body_html": kwargs["draft_body_html"],
+        "notes": [],
+    }
+    classification = FinalClassificationResult(
+        municipality=Municipality.BERGUEDA,
+        category=ContentCategory.AGENDA,
+        subtype=ContentSubtype.NONE,
+        grouping_confidence=0.9,
+        extraction_confidence=0.0,
+        classification_confidence=0.9,
+        confidence_band="high",
+        requires_review=False,
+        review_reasons=[],
+        signals=[],
+        reasoning_summary="test",
+    )
+    images = [
+        ImageProcessingResult(
+            source_file_id=uuid4(),
+            optimized_path="https://example.com/41a-CAMINADA-POPULAR-DE-PUIG-REIG_opt.jpg",
+            width=1200,
+            height=1600,
+        )
+    ]
+
+    result = service.build_editorial_content(
+        classification,
+        "",
+        images,
+        {"image_name_context": "41a-CAMINADA-POPULAR-DE-PUIG-REIG"},
+    )
+
+    assert result.final_title != "(Sin titulo)"
+    assert "CAMINADA" in result.final_title.upper()
+    assert result.final_body_html != ""

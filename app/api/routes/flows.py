@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api/v1/flows", tags=["flows"])
 
 MUNICIPALITIES = ["BERGUEDA", "CERDANYA", "MARESME"]
 CATEGORIES = ["AGENDA", "NOTICIES", "ESPORTS", "TURISME_ACTIU", "NENS_I_JOVES", "CULTURA", "GASTRONOMIA", "CONSELLS", "ENTREVISTES"]
+FLOW_PREVIEW_EXTENSIONS = ('.pdf', '.docx', '.md', '.markdown', '.txt', '.jpg', '.jpeg', '.png')
 
 
 def _serialize_processing_event(event: ProcessingEvent) -> dict:
@@ -363,7 +364,7 @@ def test_flow_path(flow_id: UUID, db: Session = Depends(get_db), keep: bool = Qu
             files_in_folder = []
             try:
                 entries = listdir(unc)
-                files_in_folder = [str(e) for e in entries if not str(e).startswith(".") and str(e).lower().endswith(('.pdf', '.docx', '.jpg', '.jpeg', '.png'))]
+                files_in_folder = [str(e) for e in entries if not str(e).startswith(".") and str(e).lower().endswith(FLOW_PREVIEW_EXTENSIONS)]
             except Exception:
                 pass
 
@@ -408,7 +409,7 @@ def test_flow_path(flow_id: UUID, db: Session = Depends(get_db), keep: bool = Qu
 
         files_in_folder = []
         try:
-            files_in_folder = [f for f in os.listdir(local_path) if not f.startswith(".") and f.lower().endswith(('.pdf', '.docx', '.jpg', '.jpeg', '.png'))]
+            files_in_folder = [f for f in os.listdir(local_path) if not f.startswith(".") and f.lower().endswith(FLOW_PREVIEW_EXTENSIONS)]
         except Exception:
             pass
 
