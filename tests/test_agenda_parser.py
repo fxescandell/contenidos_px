@@ -130,3 +130,28 @@ def test_parse_agenda_content_items_maps_one_item_per_time():
     assert items[0]["datetime_label"] == "9 h"
     assert items[1]["datetime_label"] == "10 h"
     assert items[2]["datetime_label"] == "11 h"
+
+
+def test_parse_agenda_detects_day_lines_with_catalan_d_apostrophe_month_format():
+    raw = (
+        "DIMECRES, 22 d'abril\n"
+        "Biblioteca Ramon Vinyes i Cluet\n"
+        "19:00 h Revetlla de Sant Jordi\n"
+        "DIJOUS, 23 d'abril\n"
+        "Plaça Sant Joan\n"
+        "19:30 h Audició de sardanes"
+    )
+
+    parsed = parse_agenda(raw)
+
+    assert len(parsed["events"]) == 2
+    assert parsed["events"][0]["day"] == "DIMECRES, 22 d'abril"
+    assert parsed["events"][1]["day"] == "DIJOUS, 23 d'abril"
+
+
+def test_preprocess_agenda_text_keeps_compound_hour_ranges_in_one_event():
+    raw = "Dijous, 23 d'abril De 9:00 h a 13:30 h i de 16:30 h a 19:00 h – Marató"
+
+    processed = preprocess_agenda_text(raw)
+
+    assert "De 9:00 h a 13:30 h i de 16:30 h a 19:00 h – Marató" in processed

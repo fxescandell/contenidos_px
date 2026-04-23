@@ -426,16 +426,14 @@ def test_ensure_source_text_is_preserved_rebuilds_short_agenda_body_from_source(
         listing_items,
     )
 
-    assert "Resum SEO del festival familiar." in rebuilt
-    assert "Hora del conte" in rebuilt
-    assert "Musica itinerant" in rebuilt
-    assert "Teatre clown" in rebuilt
-    assert "Xaranga Magic" in rebuilt
-    assert "agenda-datetime" in rebuilt
-    assert "agenda-location" in rebuilt
+    assert "Resum SEO del festival familiar." not in rebuilt
+    assert "Festival familiar amb activitats per a tothom." in rebuilt
+    assert 'class="agenda-intro"' in rebuilt
+    assert 'class="agenda-title"' not in rebuilt
+    assert "Hora del conte" not in rebuilt
 
 
-def test_build_source_preserving_agenda_body_keeps_ai_intro_blocks_and_program():
+def test_build_source_preserving_agenda_body_keeps_ai_intro_blocks_without_program_markup_when_listing_fields_exist():
     service = EditorialBuilderService()
     source_text = (
         "Firhabitat\n\n"
@@ -457,9 +455,148 @@ def test_build_source_preserving_agenda_body_keeps_ai_intro_blocks_and_program()
 
     assert "Firhabitat és la trobada de referència" in body_html
     assert "Durant tres dies ofereix activitats" in body_html
+    assert 'class="agenda-program-title"' not in body_html
+    assert 'class="agenda-title"' not in body_html
+
+
+def test_build_source_preserving_agenda_body_deduplicates_repeated_intro_blocks():
+    service = EditorialBuilderService()
+    source_text = (
+        "Berga celebra la Diada de Sant Jordi amb un ampli programa cultural.\n\n"
+        "PROGRAMACIÓ\n\n"
+        "DIVENDRES, 18 ABRIL\n\n"
+        "Plaça Sant Joan\n\n"
+        "19:00 h Presentació del llibre"
+    )
+    listing_items = service._extract_content_items_from_source(source_text, "AGENDA")
+
+    body_html = service._build_source_preserving_body_html(
+        source_text,
+        "",
+        "AGENDA",
+        listing_items,
+        (
+            "<p>Berga celebra la Diada de Sant Jordi amb un ampli programa cultural.</p>"
+            "<p>Berga celebra la Diada de Sant Jordi amb un ampli programa cultural.</p>"
+        ),
+    )
+
+    assert body_html.count("Berga celebra la Diada de Sant Jordi amb un ampli programa cultural.") == 1
+
+
+def test_build_source_preserving_agenda_body_removes_program_headings_from_intro():
+    service = EditorialBuilderService()
+    source_text = (
+        "**Diada de Sant Jordi – Berga 2026**\n\n"
+        "Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.\n\n"
+        "**Programa**\n\n"
+        "**Dissabte, 18 d'abril**\n\n"
+        "**10:15 h** – **IV Balconada de poesia**_Inici a l'Ajuntament de Berga_"
+    )
+    listing_items = service._extract_content_items_from_source(source_text, "AGENDA")
+
+    body_html = service._build_source_preserving_body_html(
+        source_text,
+        "Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.",
+        "AGENDA",
+        listing_items,
+        "<p>Programa</p><h2>Dissabte, 18 d'abril</h2><p>Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.</p>",
+    )
+
+    assert "<section class=\"agenda-intro\">" in body_html
+    assert body_html.count("Programa") == 0
+    assert "<h2>Dissabte, 18 d'abril</h2>" not in body_html
+
+
+def test_build_source_preserving_agenda_body_uses_only_ai_intro_before_program():
+    service = EditorialBuilderService()
+    source_text = (
+        "**Diada de Sant Jordi – Berga 2026**\n\n"
+        "Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.\n\n"
+        "**Programa**\n\n"
+        "**Dissabte, 18 d'abril**\n\n"
+        "**10:15 h** – **IV Balconada de poesia**_Inici a l'Ajuntament de Berga_"
+    )
+    listing_items = service._extract_content_items_from_source(source_text, "AGENDA")
+
+    body_html = service._build_source_preserving_body_html(
+        source_text,
+        "Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.",
+        "AGENDA",
+        listing_items,
+        "<p>Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.</p><p>Programa Dissabte, 18 d'abril</p>",
+    )
+
+    assert body_html.count("Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.") == 1
+    assert "Diada de Sant Jordi – Berga 2026" not in body_html
+    assert "<h4>Programa</h4>" not in body_html
+
+
+def test_clean_agenda_summary_removes_embedded_program_start():
+    service = EditorialBuilderService()
+
+    cleaned = service._clean_agenda_summary(
+        "Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics. Programa Dissabte, 18 d'abril"
+    )
+
+    assert cleaned == "Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics."
+
+
+def test_build_source_preserving_agenda_body_skips_program_markup_when_listing_items_exist():
+    service = EditorialBuilderService()
+    source_text = (
+        "**Diada de Sant Jordi – Berga 2026**\n\n"
+        "Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.\n\n"
+        "**Programa**\n\n"
+        "**Dissabte, 18 d'abril**\n\n"
+        "**10:15 h** – **IV Balconada de poesia**_Inici a l'Ajuntament de Berga_"
+    )
+
+    listing_items = [
+        {
+            "title": "IV Balconada de poesia",
+            "datetime_label": "04/18/2026",
+            "location": "Ajuntament de Berga",
+            "description": "Recital de poesia",
+            "extra_info": "",
+            "image_ref": "",
+        }
+    ]
+
+    body_html = service._build_source_preserving_body_html(
+        source_text,
+        "Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.",
+        "AGENDA",
+        listing_items,
+        "<p>Berga celebra la Diada de Sant Jordi amb activitats per a tots els públics.</p>",
+    )
+
+    assert "agenda-program-title" not in body_html
+    assert "agenda-day" not in body_html
+    assert "agenda-title" not in body_html
+
+
+def test_build_source_preserving_agenda_body_keeps_program_markup_without_listing_items():
+    service = EditorialBuilderService()
+    source_text = (
+        "Firhabitat\n\n"
+        "PROGRAMACIÓ\n\n"
+        "DIVENDRES, 24 ABRIL\n\n"
+        "Sala Ateneu\n\n"
+        "9 h Benvinguda\n\n"
+        "10 h Concert acústic"
+    )
+
+    body_html = service._build_source_preserving_body_html(
+        source_text,
+        "Resum SEO del certamen.",
+        "AGENDA",
+        [],
+        "<p>Firhabitat és la trobada de referència de la bioconstrucció al Berguedà.</p>",
+    )
+
+    assert 'class="agenda-program-title"' in body_html
     assert 'class="agenda-title"' in body_html
-    assert 'Benvinguda' in body_html
-    assert 'Concert acústic' in body_html
 
 
 def test_build_editorial_content_uses_image_name_context_when_no_text_was_extracted():
@@ -503,3 +640,367 @@ def test_build_editorial_content_uses_image_name_context_when_no_text_was_extrac
     assert result.final_title != "(Sin titulo)"
     assert "CAMINADA" in result.final_title.upper()
     assert result.final_body_html != ""
+
+
+def test_extract_structured_fields_agenda_builds_multiday_dates_and_activity_fields():
+    service = EditorialBuilderService()
+
+    fields = service._extract_structured_fields(
+        {
+            "agenda_category": "Agenda d'esports",
+            "activities": [
+                {
+                    "title": "Cursa popular",
+                    "datetime_label": "abril 17, 2026",
+                    "location": "Plaça Major",
+                    "description": "Recorregut urbà de 5 km.",
+                    "extra_info": "Inscripció prèvia",
+                    "image_ref": "https://example.com/cursa.jpg",
+                },
+                {
+                    "title": "Final del torneig",
+                    "datetime_label": "abril 18, 2026",
+                    "location": "Pavelló Municipal",
+                    "description": "Partit decisiu del torneig local.",
+                    "extra_info": "Entrada gratuïta",
+                    "image_ref": "https://example.com/torneig.jpg",
+                },
+            ],
+        },
+        "AGENDA",
+        "Agenda esportiva del cap de setmana",
+    )
+
+    assert fields["event_date"] == ""
+    assert fields["start_date"] == "2026-04-17"
+    assert fields["end_date"] == "2026-04-18"
+    assert fields["search_dates"] == ["2026-04-17", "2026-04-18"]
+    assert fields["search_dates_string"] == "2026-04-17|2026-04-18"
+    assert fields["agenda_category"] == "Agenda d'esports"
+    assert fields["activity_titles"] == "Cursa popular|Final del torneig"
+    assert fields["activity_dates"] == "04/17/2026|04/18/2026"
+    assert fields["activity_locations"] == "Plaça Major|Pavelló Municipal"
+    assert fields["activity_descriptions"].startswith("<p>Recorregut urbà de 5 km.</p>|<p>Partit decisiu")
+    assert fields["activity_extra_info"] == "<p>Inscripció prèvia</p>|<p>Entrada gratuïta</p>"
+    assert fields["activity_images"] == "https://example.com/cursa.jpg|https://example.com/torneig.jpg"
+    assert fields["activities_backend"] == "Cursa popular|Final del torneig"
+
+
+def test_extract_structured_fields_agenda_single_day_sets_event_date_only():
+    service = EditorialBuilderService()
+
+    fields = service._extract_structured_fields(
+        {
+            "activities": [
+                {
+                    "title": "Concert de vespre",
+                    "datetime_label": "17/04/2026",
+                    "location": "Teatre Municipal",
+                    "description": "Actuació principal de la jornada.",
+                    "extra_info": "",
+                    "image_ref": "",
+                }
+            ]
+        },
+        "AGENDA",
+        "Concert especial d'abril",
+    )
+
+    assert fields["event_date"] == "2026-04-17"
+    assert fields["start_date"] == ""
+    assert fields["end_date"] == ""
+    assert fields["search_dates"] == ["2026-04-17"]
+    assert fields["search_dates_string"] == "2026-04-17"
+    assert fields["activity_dates"] == "04/17/2026"
+
+
+def test_collect_agenda_items_prefers_high_quality_source_items_over_noisy_llm_items():
+    service = EditorialBuilderService()
+
+    noisy_fields = {
+        "activities": [
+            {
+                "title": "a",
+                "datetime_label": "10:00 h",
+                "location": "",
+                "description": "",
+                "extra_info": "",
+                "image_ref": "",
+            },
+            {
+                "title": "de",
+                "datetime_label": "",
+                "location": "",
+                "description": "",
+                "extra_info": "",
+                "image_ref": "",
+            },
+        ]
+    }
+
+    extracted_text = (
+        "DIVENDRES, 18 abril 2026\n"
+        "Plaça Sant Joan\n"
+        "19:00 h Presentació del llibre\n"
+        "20:00 h Audició de sardanes"
+    )
+
+    items = service._collect_agenda_items(noisy_fields, {}, extracted_text)
+
+    assert len(items) == 2
+    assert items[0]["title"] == "Presentació del llibre"
+    assert items[1]["title"] == "Audició de sardanes"
+
+
+def test_extract_iso_dates_from_text_handles_dual_day_catalan_expression():
+    service = EditorialBuilderService()
+
+    dates = service._extract_iso_dates_from_text("Dimecres 22 i dijous 23 d’abril de 2026")
+
+    assert dates == ["2026-04-22", "2026-04-23"]
+
+
+def test_build_agenda_activity_export_fields_replaces_low_quality_titles():
+    service = EditorialBuilderService()
+
+    fields = service._build_agenda_activity_export_fields(
+        [
+            {
+                "title": "a",
+                "datetime_label": "17/04/2026",
+                "location": "Plaça Major",
+                "description": "Activitat lúdica: llibres i jocs",
+                "extra_info": "",
+                "image_ref": "",
+            }
+        ],
+        "2026-04-17",
+    )
+
+    assert fields["activity_titles"] == "Activitat lúdica: llibres i jocs"
+    assert fields["activity_dates"] == "04/17/2026"
+
+
+def test_collect_agenda_items_adds_day_context_to_activity_datetime():
+    service = EditorialBuilderService()
+
+    extracted_text = (
+        "DIMECRES, 22 d'abril\n"
+        "Biblioteca Ramon Vinyes i Cluet\n"
+        "19:00 h Revetlla de Sant Jordi\n"
+        "DIJOUS, 23 d'abril\n"
+        "Plaça Sant Joan\n"
+        "19:30 h Audició de sardanes"
+    )
+
+    items = service._collect_agenda_items({}, {}, extracted_text)
+    fields = service._build_agenda_activity_export_fields(items, "")
+
+    assert "04/22/2026" in fields["activity_dates"]
+    assert "04/23/2026" in fields["activity_dates"]
+
+
+def test_collect_agenda_items_prefers_markdown_source_and_extracts_clean_titles_locations():
+    service = EditorialBuilderService()
+
+    extracted_text = (
+        "**Programa**\n\n"
+        "**Dissabte, 18 d'abril**\n\n"
+        "**10:15 h** – **IV Balconada de poesia**_Inici a l'Ajuntament de BergaRecital de poesia_\n"
+        "**De 17:00 h a 20:00 h** – **Activitat lúdica: llibres i jocs**_A la plaça Major de la ValldanAmb la Companyia de Jocs l'Anònima_"
+    )
+
+    items = service._collect_agenda_items({}, {}, extracted_text)
+
+    assert len(items) == 2
+    assert items[0]["title"] == "IV Balconada de poesia"
+    assert items[0]["location"] == "Ajuntament de Berga"
+    assert items[1]["title"] == "Activitat lúdica: llibres i jocs"
+    assert items[1]["location"] == "plaça Major de la Valldan"
+
+
+def test_collect_agenda_items_extracts_prose_schedule_blocks_from_plain_text():
+    service = EditorialBuilderService()
+
+    extracted_text = (
+        "Dissabte 18 d'abril\n"
+        "Cardener amb Eduard Gener. Concert al Monestir de Sant Llorenç.\n\n"
+        "Dissabte 25 i diumenge 26 d'abril\n"
+        "Recitals de final de grau professional del Conservatori de Música dels Pirineus. Accés lliure."
+    )
+
+    items = service._collect_agenda_items({}, {}, extracted_text)
+
+    assert len(items) == 2
+    assert items[0]["title"] == "Cardener amb Eduard Gener"
+    assert items[1]["title"] == "Recitals de final de grau professional del Conservatori de Música dels Pirineus"
+
+
+def test_build_agenda_date_fields_without_items_uses_discrete_dates_instead_of_long_range():
+    service = EditorialBuilderService()
+
+    fields = service._build_agenda_date_fields({}, [], "5 d'abril de 2026 i 16 de maig de 2026")
+
+    assert fields["start_date"] == "2026-04-05"
+    assert fields["end_date"] == "2026-05-16"
+    assert fields["search_dates"] == ["2026-04-05", "2026-05-16"]
+
+
+def test_build_agenda_date_fields_without_items_expands_short_range_when_compact_event():
+    service = EditorialBuilderService()
+
+    fields = service._build_agenda_date_fields({}, [], "Berga 2 i 3 de maig de 2026")
+
+    assert fields["start_date"] == "2026-05-02"
+    assert fields["end_date"] == "2026-05-03"
+    assert fields["search_dates"] == ["2026-05-02", "2026-05-03"]
+
+
+def test_build_agenda_date_fields_with_sparse_item_dates_does_not_expand_to_full_span():
+    service = EditorialBuilderService()
+
+    fields = service._build_agenda_date_fields(
+        {},
+        [
+            {"datetime_label": "Dissabte 18 d'abril 2026"},
+            {"datetime_label": "Dissabte 25 d'abril 2026"},
+            {"datetime_label": "Dissabte 2 de maig 2026"},
+            {"datetime_label": "Dissabte 9 de maig 2026"},
+            {"datetime_label": "Dissabte 16 de maig 2026"},
+        ],
+        "10 anys d'activitats continuades",
+    )
+
+    assert fields["start_date"] == "2026-04-18"
+    assert fields["end_date"] == "2026-05-16"
+    assert fields["search_dates"] == [
+        "2026-04-18",
+        "2026-04-25",
+        "2026-05-02",
+        "2026-05-09",
+        "2026-05-16",
+    ]
+
+
+def test_sanitize_body_html_does_not_duplicate_existing_author_note():
+    service = EditorialBuilderService()
+
+    sanitized = service._sanitize_body_html(
+        "<p>Text principal.</p><p><em>Autoria: Pànxing.</em></p>",
+        "Text principal.",
+        "Titol",
+        {"author_source": "PANXING"},
+    )
+
+    assert sanitized.count("Autoria: Pànxing.") == 1
+
+
+def test_to_wp_activity_date_prefers_prominent_day_over_secondary_dates():
+    service = EditorialBuilderService()
+
+    wp_date = service._to_wp_activity_date("Dissabte 25 i diumenge 26 d'abril", "")
+
+    assert wp_date == "04/25/2026"
+
+
+def test_to_wp_activity_date_includes_hour_when_present():
+    service = EditorialBuilderService()
+
+    wp_date = service._to_wp_activity_date("Dissabte, 25 d'abril de 2026 - 18:00 h", "")
+
+    assert wp_date == "04/25/2026 18:00"
+
+
+def test_to_wp_activity_date_includes_hour_from_simple_h_format():
+    service = EditorialBuilderService()
+
+    wp_date = service._to_wp_activity_date("Dissabte, 25 d'abril de 2026 - 9 h", "")
+
+    assert wp_date == "04/25/2026 09:00"
+
+
+def test_build_agenda_activity_export_fields_uses_time_from_title_when_datetime_label_has_only_date():
+    service = EditorialBuilderService()
+
+    fields = service._build_agenda_activity_export_fields(
+        [
+            {
+                "title": "18:00 h Concert de Sant Marc",
+                "datetime_label": "Dissabte, 25 d'abril de 2026",
+                "location": "Pavelló vell",
+                "description": "",
+                "extra_info": "",
+                "image_ref": "",
+            }
+        ],
+        "",
+    )
+
+    assert fields["activity_dates"] == "04/25/2026 18:00"
+
+
+def test_enrich_agenda_structured_fields_populates_program_from_prose_schedule_text():
+    service = EditorialBuilderService()
+
+    extracted_text = (
+        "10 anys d'activitats continuades al Monestir de Sant Llorenç\n\n"
+        "Dissabte 18 d'abril\n"
+        "Cardener amb Eduard Gener. Un disc que pren el riu com a fil conductor.\n\n"
+        "Dissabte 25 i diumenge 26 d'abril\n"
+        "Recitals de final de grau professional del Conservatori de Música dels Pirineus. Accés lliure.\n\n"
+        "Dissabte 16 de maig\n"
+        "La sensibilitat de la tramuntana amb Cia. Infinit Teatre. Espectacle poètic."
+    )
+
+    fields = service._enrich_agenda_structured_fields({}, {}, extracted_text)
+
+    assert fields["start_date"] == "2026-04-18"
+    assert fields["end_date"] == "2026-05-16"
+    assert fields["search_dates"] == ["2026-04-18", "2026-04-25", "2026-04-26", "2026-05-16"]
+    assert "Cardener amb Eduard Gener" in fields["activity_titles"]
+    assert "Recitals de final de grau professional del Conservatori de Música dels Pirineus" in fields["activity_titles"]
+    assert "La sensibilitat de la tramuntana amb Cia" in fields["activity_titles"]
+
+
+def test_remove_summary_duplication_from_body_removes_matching_intro_paragraph():
+    service = EditorialBuilderService()
+
+    cleaned = service._remove_summary_duplication_from_body(
+        "<p>Resum introductori de l'agenda.</p><p>Programa complet del cap de setmana.</p>",
+        "Resum introductori de l'agenda.",
+    )
+
+    assert "Resum introductori de l'agenda." not in cleaned
+    assert "Programa complet del cap de setmana." in cleaned
+
+
+def test_remove_summary_duplication_from_body_removes_excerpt_like_first_paragraph():
+    service = EditorialBuilderService()
+
+    summary = (
+        "Gironella celebra Sant Marc amb un cap de setmana ple d'activitats per a tots els públics, "
+        "amb cultura popular, música i tradicions."
+    )
+    body_html = (
+        "<p>Gironella celebra Sant Marc amb un cap de setmana ple d'activitats per a tots els públics, "
+        "amb cultura popular, música i tradicions en un ambient festiu i participatiu.</p>"
+        "<p>El programa inclou cercavila, missa major i sopar popular.</p>"
+    )
+
+    cleaned = service._remove_summary_duplication_from_body(body_html, summary)
+
+    assert "ambient festiu i participatiu" not in cleaned
+    assert "El programa inclou cercavila" in cleaned
+
+
+def test_clean_agenda_summary_limits_to_introductory_sentences():
+    service = EditorialBuilderService()
+
+    cleaned = service._clean_agenda_summary(
+        "Berga celebra Sant Marc amb activitats per a tothom. "
+        "El cap de setmana combina tradició, cultura i música. "
+        "Programa dissabte i diumenge amb cercaviles i concerts."
+    )
+
+    assert "Programa dissabte i diumenge" not in cleaned
+    assert cleaned.startswith("Berga celebra Sant Marc")

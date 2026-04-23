@@ -38,6 +38,12 @@ MUNICIPALITY_SLOT_MAP: Dict[str, str] = {
     "bergueda": "BERGUEDA",
 }
 
+MUNICIPALITY_DISPLAY_MAP: Dict[str, str] = {
+    "MARESME": "Maresme",
+    "CERDANYA": "Cerdanya",
+    "BERGUEDA": "Berguedà",
+}
+
 CONSELLS_ALLOWED_TYPES: Dict[str, str] = {
     "bellesa": "Bellesa",
     "eco": "Eco",
@@ -208,14 +214,15 @@ def parse_json_example(json_example: str) -> Optional[Any]:
 
 
 def normalize_strict_payload_municipality_fields(payload: Any, municipality: str) -> Any:
-    normalized_municipality = str(municipality or "").upper().strip()
+    normalized_municipality = _resolve_municipality_slot_token(municipality)
+    municipality_display = _resolve_municipality_display_name(municipality)
 
     if isinstance(payload, dict):
         normalized_payload = {}
         for key, value in payload.items():
             expected_municipality = _get_expected_municipality_for_key(str(key).lower())
             if expected_municipality is not None:
-                normalized_payload[key] = municipality if normalized_municipality == expected_municipality else ""
+                normalized_payload[key] = municipality_display if normalized_municipality == expected_municipality else ""
             else:
                 normalized_payload[key] = normalize_strict_payload_municipality_fields(value, municipality)
         return normalized_payload
@@ -317,10 +324,12 @@ def build_strict_payload_from_example(example_payload: Any, values: Dict[str, An
 def _resolve_string_value(example_value: str, values: Dict[str, Any]) -> Any:
     current_key = str(values.get("__current_key", "")).lower()
     resolving_key = bool(values.get("__resolving_key"))
-    municipality = str(values.get("municipality", "") or "").upper().strip()
+    municipality = str(values.get("municipality", "") or "")
+    municipality_token = _resolve_municipality_slot_token(municipality)
+    municipality_display = values.get("municipality_display") or _resolve_municipality_display_name(municipality)
     search_dates = values.get("search_dates", [])
     if isinstance(search_dates, list):
-        search_dates_string = ",".join(str(item) for item in search_dates if item)
+        search_dates_string = "|".join(str(item) for item in search_dates if item)
     else:
         search_dates_string = str(search_dates or "")
 
@@ -331,7 +340,7 @@ def _resolve_string_value(example_value: str, values: Dict[str, Any]) -> Any:
         "{{summary}}": values.get("summary", ""),
         "{{body_html}}": values.get("body_html", ""),
         "{{body_text}}": values.get("body_text", ""),
-        "{{municipality}}": values.get("municipality", ""),
+        "{{municipality}}": municipality,
         "{{category}}": values.get("category", ""),
         "{{subtype}}": values.get("subtype", ""),
         "{{featured_image_path}}": values.get("featured_image_path", ""),
@@ -343,9 +352,17 @@ def _resolve_string_value(example_value: str, values: Dict[str, Any]) -> Any:
         "{{publish_date}}": values.get("publish_date", ""),
         "{{slug}}": values.get("slug", ""),
         "{{consell_type}}": values.get("consell_type", "Professionals"),
-        "{{municipi_maresme}}": values.get("municipality", "") if municipality == "MARESME" else "",
-        "{{municipi_cerdanya}}": values.get("municipality", "") if municipality == "CERDANYA" else "",
-        "{{municipi_bergueda}}": values.get("municipality", "") if municipality == "BERGUEDA" else "",
+        "{{municipi_maresme}}": municipality_display if municipality_token == "MARESME" else "",
+        "{{municipi_cerdanya}}": municipality_display if municipality_token == "CERDANYA" else "",
+        "{{municipi_bergueda}}": municipality_display if municipality_token == "BERGUEDA" else "",
+        "{{agenda_category}}": values.get("agenda_category", ""),
+        "{{activity_titles}}": values.get("activity_titles", ""),
+        "{{activity_dates}}": values.get("activity_dates", ""),
+        "{{activity_locations}}": values.get("activity_locations", ""),
+        "{{activity_descriptions}}": values.get("activity_descriptions", ""),
+        "{{activity_extra_info}}": values.get("activity_extra_info", ""),
+        "{{activity_images}}": values.get("activity_images", ""),
+        "{{activities_backend}}": values.get("activities_backend", values.get("activities", "")),
     }
 
     stripped = example_value.strip()
@@ -361,7 +378,7 @@ def _resolve_string_value(example_value: str, values: Dict[str, Any]) -> Any:
 
     expected_municipality = _get_expected_municipality_for_key(current_key)
     if expected_municipality is not None:
-        return values.get("municipality", "") if municipality == expected_municipality else ""
+        return municipality_display if municipality_token == expected_municipality else ""
 
     if current_key in ["municipality", "municipio", "municipi"]:
         return values.get("municipality", "")
@@ -402,6 +419,19 @@ def _get_expected_municipality_for_key(current_key: str) -> Optional[str]:
     return None
 
 
+def _resolve_municipality_slot_token(value: str) -> str:
+    normalized = _normalize_token(str(value or ""))
+    for token, municipality in MUNICIPALITY_SLOT_MAP.items():
+        if token == normalized:
+            return municipality
+    return str(value or "").upper().strip()
+
+
+def _resolve_municipality_display_name(value: str) -> str:
+    token = _resolve_municipality_slot_token(value)
+    return MUNICIPALITY_DISPLAY_MAP.get(token, str(value or ""))
+
+
 def normalize_strict_payload_exact_fields(payload: Any, values: Dict[str, Any]) -> Any:
     exact_field_values = _get_exact_export_field_values(values)
 
@@ -422,6 +452,12 @@ def normalize_strict_payload_exact_fields(payload: Any, values: Dict[str, Any]) 
 
 
 def _get_exact_export_field_values(values: Dict[str, Any]) -> Dict[str, Any]:
+    search_dates = values.get("search_dates", [])
+    if isinstance(search_dates, list):
+        search_dates_string = "|".join(str(item) for item in search_dates if item)
+    else:
+        search_dates_string = str(search_dates or "")
+
     return {
         "post_title": values.get("title", ""),
         "post_content": values.get("body_html", ""),
@@ -502,7 +538,18 @@ def _get_exact_export_field_values(values: Dict[str, Any]) -> Dict[str, Any]:
         "rank_math_twitter_player_stream_ctype": values.get("rank_math_twitter_player_stream_ctype", ""),
         "consell": values.get("consell_type", "Professionals"),
         "article-destacat": values.get("article_destacat", "1"),
-        "activitats": values.get("activities", ""),
+        "categoria-d-agenda": values.get("agenda_category", ""),
+        "data-esdeveniment": values.get("event_date", ""),
+        "data-inici": values.get("start_date", ""),
+        "data-final": values.get("end_date", ""),
+        "dates-que-es-realitza-buscador": values.get("search_dates_string", search_dates_string),
+        "titol-activitat": values.get("activity_titles", ""),
+        "data-i-hora-activitat": values.get("activity_dates", ""),
+        "on-es-realitza-l-activitat": values.get("activity_locations", ""),
+        "descripcio-activitat": values.get("activity_descriptions", ""),
+        "informacio-adicional": values.get("activity_extra_info", ""),
+        "imatge-activitat": values.get("activity_images", ""),
+        "activitats": values.get("activities_backend", values.get("activities", "")),
         "types_caption": values.get("types_caption", ""),
         "types_alt_text": values.get("types_alt_text", ""),
         "types_description": values.get("types_description", ""),

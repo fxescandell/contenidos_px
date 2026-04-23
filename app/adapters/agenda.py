@@ -13,9 +13,13 @@ class AgendaWordPressAdapter(BaseWordPressAdapter):
             "data-final": sf.get("end_date", ""),
             "dates-que-es-realitza-buscador": sf.get("search_dates", []),
         }
-        
-        activities = sf.get("activities", [])
-        if activities:
-            meta["activitats"] = activities
+
+        activities_backend = sf.get("activities_backend", "")
+        if activities_backend:
+            meta["activitats"] = activities_backend
+        else:
+            activities = sf.get("activities", [])
+            if activities:
+                meta["activitats"] = activities
             
         return meta

@@ -3,10 +3,24 @@ import re
 from typing import Any, Dict, List
 
 
-DAY_PATTERN = r"(?:DIVENDRES|DISSABTE|DIUMENGE|DILLUNS|DIMARTS|DIMECRES|DIJOUS)(?:,\s*\d{1,2}\s+[A-ZÀ-Úa-zà-ú]+)?"
+DAY_PATTERN = (
+    r"(?:DIVENDRES|DISSABTE|DIUMENGE|DILLUNS|DIMARTS|DIMECRES|DIJOUS)"
+    r"(?:,?\s*\d{1,2}(?:\s*(?:de|d['’]))?\s*[A-ZÀ-Úa-zà-ú]+)?"
+    r"(?:\s*(?:i|y)\s*(?:DIVENDRES|DISSABTE|DIUMENGE|DILLUNS|DIMARTS|DIMECRES|DIJOUS)"
+    r"(?:,?\s*\d{1,2}(?:\s*(?:de|d['’]))?\s*[A-ZÀ-Úa-zà-ú]+)?)?"
+)
 SPACE_LABEL_PATTERN = r"(?:Sala|Espai|Zona|Biblioteca|Pla[çc]a|Riera|TMC|Pavell[oó]|Parc|Passeig|Recinte|Auditori|Food\s+Trucks|Estand|Diversos\s+espais|Davant\s+escola)"
 SPACE_PATTERN = rf"{SPACE_LABEL_PATTERN}[^\n]*"
-TIME_PATTERN = r"(?:A\s*partir\s+de\s+les\s+\d{1,2}(?::\d{2})?\s*h|\d{1,2}(?::\d{2})?\s*(?:a|-|–)\s*\d{1,2}(?::\d{2})?\s*h|\d{1,2}(?::\d{2})?\s*h)"
+TIME_PATTERN = (
+    r"(?:"
+    r"A\s*partir\s+de\s+les\s+\d{1,2}(?::\d{2})?\s*h"
+    r"|"
+    r"(?:de\s+)?\d{1,2}(?::\d{2})?\s*h?\s*(?:a|-|–)\s*\d{1,2}(?::\d{2})?\s*h"
+    r"(?:\s*i\s*de\s*\d{1,2}(?::\d{2})?\s*h?\s*(?:a|-|–)\s*\d{1,2}(?::\d{2})?\s*h)?"
+    r"|"
+    r"\d{1,2}(?::\d{2})?\s*h"
+    r")"
+)
 
 DAY_RE = re.compile(rf"^{DAY_PATTERN}$", re.IGNORECASE)
 SPACE_RE = re.compile(rf"^{SPACE_PATTERN}$", re.IGNORECASE)
@@ -18,6 +32,17 @@ DAY_HINT_RE = re.compile(r"\b(?:DIVENDRES|DISSABTE|DIUMENGE|DILLUNS|DIMARTS|DIME
 
 def _clean_text(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _normalize_markdown_like_text(raw_text: str) -> str:
+    text = str(raw_text or "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("**", "")
+    text = text.replace("__", "")
+    text = text.replace("_", "")
+    text = re.sub(r"([a-zà-ÿ])([A-ZÀ-Ý])", r"\1 \2", text)
+    text = re.sub(r"([”\"'])([A-ZÀ-Ý])", r"\1 \2", text)
+    return text
 
 
 def _title_case_if_upper(value: str) -> str:
@@ -130,10 +155,10 @@ def _split_intro_from_preface(preface_lines: List[str]) -> tuple[List[str], List
 
 # Preprocesa el texto bruto para facilitar el parsing determinista.
 def preprocess_agenda_text(raw_text: str) -> str:
-    text = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = _normalize_markdown_like_text(raw_text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\s*\n\s*", "\n", text)
-    text = re.sub(rf"(?<!\n)(?=\b{DAY_PATTERN}\b)", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(rf"(?<!\n)(?<! i )(?<! y )(?=\b{DAY_PATTERN}\b)", "\n", text, flags=re.IGNORECASE)
     text = re.sub(rf"(?<!\n)(?=\b{SPACE_LABEL_PATTERN}\b)", "\n", text, flags=re.IGNORECASE)
     text = _insert_time_breaks(text)
     text = re.sub(r"\n{2,}", "\n", text)
@@ -149,12 +174,16 @@ def _insert_time_breaks(text: str) -> str:
         pieces.append(text[last_index:start])
         line_start = text.rfind("\n", 0, start) + 1
         prefix = text[line_start:start]
+        prefix_clean = prefix.strip().lower()
+        context_before = text[max(0, start - 32):start].lower()
         should_break = (
             start > 0
             and text[start - 1].isspace()
             and prefix.strip()
             and not DAY_HINT_RE.search(prefix)
             and not prefix.strip().endswith(("•", "-", "–"))
+            and prefix_clean not in {"de", "i de", "de les", "a les"}
+            and not re.search(r"(?:\b(?:a|de|i de|de les|a les)|-|–)\s*$", context_before)
         )
         if should_break and (not pieces[-1].endswith("\n")):
             pieces.append("\n")
@@ -173,6 +202,9 @@ def split_events_by_time(block_text: str) -> List[str]:
     if len(matches) <= 1:
         return [cleaned]
 
+    if _looks_like_single_marked_event(cleaned, matches):
+        return [cleaned]
+
     fragments = []
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(cleaned)
@@ -180,6 +212,17 @@ def split_events_by_time(block_text: str) -> List[str]:
         if fragment:
             fragments.append(fragment)
     return fragments or [cleaned]
+
+
+def _looks_like_single_marked_event(value: str, matches: List[re.Match]) -> bool:
+    marker = re.search(r"\s[\-–]\s", value)
+    if not marker:
+        return False
+
+    marker_pos = marker.start()
+    times_before = [match for match in matches if match.start() < marker_pos]
+    times_after = [match for match in matches if match.start() > marker_pos]
+    return bool(times_before) and not times_after
 
 
 # Normaliza un fragmento usando el contexto de dia y espacio ya detectado.
@@ -207,6 +250,13 @@ def normalize_event(fragment: str, context: Dict[str, str]) -> Dict[str, str]:
     content_text = " ".join(content_lines)
     if datetime_label:
         content_text = _clean_text(TIME_RE.sub("", content_text, count=1))
+    content_text = re.sub(r"^[\-–—]\s*", "", content_text)
+
+    if not explicit_location:
+        location_match = re.search(r"\b(?:a\s+la|al|a\s+l')\s+(.+)$", content_text, re.IGNORECASE)
+        if location_match:
+            explicit_location = _clean_text(location_match.group(1))
+            content_text = _clean_text(content_text[:location_match.start()])
 
     content_text, extracted_extra_info = _extract_extra_info(content_text)
     title = content_text

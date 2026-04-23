@@ -56,3 +56,28 @@ def test_agenda_adapter_build_meta_fields():
     assert meta["data-esdeveniment"] == "2026-04-03"
     assert meta["tipus-d-article"] == "Esdeveniment"
     assert meta["dates-que-es-realitza-buscador"] == ["2026-04-03"]
+
+
+def test_agenda_adapter_build_meta_fields_preserves_string_search_dates_and_activity_backend():
+    candidate = ContentCandidate(id=uuid4(), candidate_key="test-3")
+    content = CanonicalContent(
+        candidate=candidate,
+        municipality=Municipality.BERGUEDA,
+        category=ContentCategory.AGENDA,
+        subtype=ContentSubtype.AGENDA_GENERAL,
+        final_title="Test Agenda 3",
+        final_body_html="<p>Test</p>",
+        structured_fields_json={
+            "event_date": "2026-04-17",
+            "search_dates": ["2026-04-17", "2026-04-18"],
+            "search_dates_string": "2026-04-17|2026-04-18",
+            "activities_backend": "Cursa popular|Final del torneig",
+            "article_type": "Agenda",
+        }
+    )
+
+    adapter = AgendaWordPressAdapter()
+    meta = adapter.build_meta_fields(content)
+
+    assert meta["dates-que-es-realitza-buscador"] == ["2026-04-17", "2026-04-18"]
+    assert meta["activitats"] == "Cursa popular|Final del torneig"

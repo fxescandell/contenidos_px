@@ -5,13 +5,13 @@ import logging
 import mimetypes
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 
 from app.schemas.all_schemas import EditorialBuildResult, ImageProcessingResult
 from app.schemas.classification import FinalClassificationResult
-from app.services.editorial.agenda_parser import agenda_events_to_content_items, parse_agenda, render_agenda_html, render_highlight_box
+from app.services.editorial.agenda_parser import parse_agenda, render_agenda_html, render_highlight_box
 from app.services.editorial.final_review import final_review_service
 from app.services.categories.service import (
     get_category_export_config,
@@ -26,6 +26,122 @@ from app.services.categories.service import (
 logger = logging.getLogger(__name__)
 MARKDOWN_HEADING_RE = re.compile(r"^\[\[H([1-6])\]\]\s*(.+)$")
 MARKDOWN_LIST_RE = re.compile(r"^\[\[LI\]\]\s*(.+)$")
+
+AGENDA_CATEGORY_OPTIONS = [
+    "Festes populars",
+    "Oci i activitats",
+    "Agenda cultural",
+    "Agenda d'esports",
+    "Activitats en familia",
+    "Tallers i xerrades",
+    "Mercats",
+    "General",
+    "Concert",
+    "AGENDA",
+    "Fira",
+    "Agenda General",
+    "Esport",
+    "Teatre",
+]
+
+AGENDA_CATEGORY_KEYWORDS = {
+    "Agenda d'esports": ["esport", "partit", "cursa", "torneig", "campionat", "trail", "btt", "futbol", "basquet"],
+    "Concert": ["concert", "musica", "música", "acustic", "acústic", "dj", "orquestra", "recital"],
+    "Teatre": ["teatre", "teatro", "obra", "clown", "espectacle teatral", "dramat"],
+    "Activitats en familia": ["familia", "família", "infantil", "nens", "nenes", "familiar", "canalla"],
+    "Tallers i xerrades": ["taller", "xerrada", "conferencia", "conferència", "ponencia", "ponència", "masterclass"],
+    "Mercats": ["mercat", "mercado", "flea", "parades", "artesania"],
+    "Fira": ["fira", "feria", "mostra", "certamen"],
+    "Agenda cultural": ["cultura", "cultural", "patrimoni", "exposicio", "exposició", "museu", "biblioteca"],
+    "Festes populars": ["festa", "festes", "major", "correfoc", "cercavila", "prego", "pregó", "tradicio", "tradició"],
+    "Oci i activitats": ["oci", "activitat", "activitats", "cap de setmana", "programa", "agenda"],
+}
+
+AGENDA_LOW_QUALITY_TITLES = {
+    "a",
+    "de",
+    "i",
+    "o",
+    "la",
+    "el",
+    "les",
+    "els",
+    "del",
+    "dels",
+    "al",
+    "als",
+    "amb",
+    "per",
+    "en",
+    "programa",
+    "programacio",
+    "data",
+    "hora",
+    "lloc",
+    "de a",
+    "i de",
+}
+
+AGENDA_DAY_TOKENS = {
+    "dilluns",
+    "dimarts",
+    "dimecres",
+    "dijous",
+    "divendres",
+    "dissabte",
+    "diumenge",
+    "lunes",
+    "martes",
+    "miercoles",
+    "jueves",
+    "viernes",
+    "sabado",
+    "domingo",
+}
+
+AGENDA_EXTRA_INFO_RE = re.compile(
+    r"\b(Gratu[iï]t|Inscripci[oó]\s+pr[eè]via|Inscripci[oó]|Obert\s+a\s+tothom)\b",
+    re.IGNORECASE,
+)
+
+MONTH_NAME_TO_NUMBER = {
+    "gener": 1,
+    "enero": 1,
+    "january": 1,
+    "febrer": 2,
+    "febrero": 2,
+    "february": 2,
+    "marc": 3,
+    "març": 3,
+    "marzo": 3,
+    "march": 3,
+    "abril": 4,
+    "april": 4,
+    "maig": 5,
+    "mayo": 5,
+    "may": 5,
+    "juny": 6,
+    "junio": 6,
+    "june": 6,
+    "juliol": 7,
+    "julio": 7,
+    "july": 7,
+    "agost": 8,
+    "agosto": 8,
+    "august": 8,
+    "setembre": 9,
+    "septiembre": 9,
+    "setiembre": 9,
+    "september": 9,
+    "octubre": 10,
+    "october": 10,
+    "novembre": 11,
+    "noviembre": 11,
+    "november": 11,
+    "desembre": 12,
+    "diciembre": 12,
+    "december": 12,
+}
 
 
 class EditorialBuilderService:
@@ -390,6 +506,9 @@ class EditorialBuilderService:
             if "content_items" not in fields:
                 fields["content_items"] = list(fields["activities"])
 
+        if category == "AGENDA":
+            return self._enrich_agenda_structured_fields(fields, llm_result, text)
+
         date_pattern = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})")
         dates_found = date_pattern.findall(text)
         if dates_found and category in ("AGENDA", "ESPORTS", "CULTURA", "TURISME_ACTIU"):
@@ -421,8 +540,8 @@ class EditorialBuilderService:
         slug = self._slugify(title)
         publish_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         event_date = structured_fields.get("event_date", "")
-        start_date = structured_fields.get("start_date", event_date)
-        end_date = structured_fields.get("end_date", event_date)
+        start_date = structured_fields.get("start_date", "")
+        end_date = structured_fields.get("end_date", "")
 
         payload_values = {
             "id": slug or "article-id",
@@ -438,6 +557,7 @@ class EditorialBuilderService:
             "start_date": start_date,
             "end_date": end_date,
             "search_dates": structured_fields.get("search_dates", []),
+            "search_dates_string": structured_fields.get("search_dates_string", ""),
             "publish_date": publish_date,
             "slug": slug,
             "consell_type": structured_fields.get("consell_type", "Professionals"),
@@ -500,6 +620,8 @@ class EditorialBuilderService:
 
         reviewed_title = self._clean_text_line(reviewed.get("title", "")) or title
         reviewed_summary = self._build_summary(reviewed.get("summary", ""), original_text)
+        if (metadata.get("category") or category) == "AGENDA":
+            reviewed_summary = self._clean_agenda_summary(reviewed_summary)
         reviewed_body_html = self._clean_text_line(reviewed.get("body_html", "")) and reviewed.get("body_html", "") or body_html
         if "<figure" in body_html and "<figure" not in reviewed_body_html:
             reviewed_body_html = body_html
@@ -512,6 +634,8 @@ class EditorialBuilderService:
         )
         reviewed_body_html = self._sanitize_body_html(reviewed_body_html, original_text, reviewed_title, source_context)
         reviewed_body_html = self._enhance_html_structure(reviewed_body_html, metadata.get("category") or category)
+        if (metadata.get("category") or category) == "AGENDA":
+            reviewed_body_html = self._remove_summary_duplication_from_body(reviewed_body_html, reviewed_summary)
 
         featured_image_path = structured_fields.get("rank_math_facebook_image") or structured_fields.get("_featured_image_path") or (images[0].optimized_path if images and images[0].optimized_path else "")
         seo_fields = self._build_seo_fields(
@@ -533,6 +657,10 @@ class EditorialBuilderService:
         category: str,
         extracted_text: str,
     ) -> None:
+        if category == "AGENDA":
+            structured_fields.update(self._enrich_agenda_structured_fields(structured_fields, llm_result, extracted_text))
+            return
+
         if category != "CONSELLS":
             return
 
@@ -566,6 +694,8 @@ class EditorialBuilderService:
     ) -> tuple[str, str, str, Dict[str, Any]]:
         final_title = self._clean_text_line(title) or self._derive_title_from_text(body_text)
         final_summary = self._build_summary(summary, body_text)
+        if (metadata.get("category") or "") == "AGENDA":
+            final_summary = self._clean_agenda_summary(final_summary)
         selection_images = metadata.get("featured_selection_images") or images
         featured_image = self._select_featured_image(final_title, final_summary, body_text, images, selection_images)
         featured_image_path = featured_image.optimized_path if featured_image and featured_image.optimized_path else ""
@@ -583,6 +713,8 @@ class EditorialBuilderService:
             metadata.get("category") or "",
             listing_items,
         )
+        if (metadata.get("category") or "") == "AGENDA":
+            sanitized_body_html = self._remove_summary_duplication_from_body(sanitized_body_html, final_summary)
         listing_items = self._assign_activity_image_refs(
             listing_items,
             images,
@@ -755,9 +887,1017 @@ class EditorialBuilderService:
             })
         return normalized
 
+    def _enrich_agenda_structured_fields(
+        self,
+        structured_fields: Dict[str, Any],
+        llm_result: Dict[str, Any],
+        extracted_text: str,
+    ) -> Dict[str, Any]:
+        enriched = dict(structured_fields or {})
+        items = self._collect_agenda_items(enriched, llm_result, extracted_text)
+        if items:
+            enriched["activities"] = items
+            enriched["content_items"] = items
+
+        date_fields = self._build_agenda_date_fields(enriched, items, extracted_text)
+        enriched.update(date_fields)
+        enriched["search_dates_string"] = "|".join(date_fields.get("search_dates", []))
+
+        activity_fields = self._build_agenda_activity_export_fields(
+            items,
+            date_fields.get("event_date", "") or (date_fields.get("search_dates", [""])[0] if date_fields.get("search_dates") else ""),
+        )
+        enriched.update(activity_fields)
+
+        raw_category = self._clean_text_line(
+            enriched.get("agenda_category", "")
+            or llm_result.get("agenda_category", "")
+            or llm_result.get("categoria-d-agenda", "")
+        )
+        normalized_category = self._normalize_agenda_category(raw_category)
+        if not normalized_category:
+            normalized_category = self._infer_agenda_category(extracted_text, items)
+        enriched["agenda_category"] = normalized_category
+
+        return enriched
+
+    def _collect_agenda_items(
+        self,
+        structured_fields: Dict[str, Any],
+        llm_result: Dict[str, Any],
+        extracted_text: str,
+    ) -> List[Dict[str, Any]]:
+        candidates: List[List[Dict[str, Any]]] = []
+
+        markdown_items = self._sanitize_agenda_items(self._extract_markdown_agenda_items(extracted_text))
+        if markdown_items:
+            candidates.append(markdown_items)
+
+        prose_items = self._sanitize_agenda_items(self._extract_agenda_items_from_prose(extracted_text))
+        if prose_items:
+            candidates.append(prose_items)
+
+        for value in [
+            structured_fields.get("activities"),
+            structured_fields.get("content_items"),
+            llm_result.get("activities"),
+            llm_result.get("content_items"),
+        ]:
+            normalized = self._sanitize_agenda_items(self._normalize_activity_items(value))
+            if normalized:
+                candidates.append(normalized)
+
+        source_items = self._sanitize_agenda_items(
+            self._build_source_agenda_items_with_day_context(parse_agenda(extracted_text).get("events", []))
+        )
+        if source_items:
+            candidates.append(source_items)
+
+        if not candidates:
+            return []
+
+        return max(candidates, key=self._agenda_items_quality_score)
+
+    def _extract_agenda_items_from_prose(self, extracted_text: str) -> List[Dict[str, Any]]:
+        source = str(extracted_text or "").replace("\r\n", "\n").replace("\r", "\n")
+        if not source.strip():
+            return []
+
+        blocks = [block.strip() for block in re.split(r"\n\s*\n+", source) if block.strip()]
+        if not blocks:
+            return []
+
+        reference_year = self._infer_reference_year(source)
+        items: List[Dict[str, Any]] = []
+
+        for block in blocks:
+            lines = [self._clean_text_line(line) for line in block.split("\n") if self._clean_text_line(line)]
+            if not lines:
+                continue
+
+            heading = lines[0]
+            body_text = " ".join(lines[1:]).strip()
+
+            if not body_text:
+                compact_match = re.match(
+                    r"^(.*?\b\d{1,2}(?:\s*(?:i|y)\s*\d{1,2})?\s*(?:de|d['’])?\s*[A-Za-zÀ-ÿ]+(?:\s+de\s+\d{4})?)(?:\s*[–:-]\s*|\s+)(.+)$",
+                    heading,
+                    re.IGNORECASE,
+                )
+                if compact_match:
+                    heading = self._clean_text_line(compact_match.group(1))
+                    body_text = self._clean_text_line(compact_match.group(2))
+
+            heading_dates = self._extract_iso_dates_from_text(heading, reference_year)
+            if not heading_dates:
+                if items:
+                    tail_text = self._clean_agenda_inline_text(block)
+                    if tail_text and len(tail_text) < 180 and self._normalize_token(tail_text) not in {
+                        "redaccio",
+                        "redaccion",
+                    }:
+                        last = items[-1]
+                        combined = self._clean_text_line(" ".join(part for part in [last.get("description", ""), tail_text] if part))
+                        last["description"] = combined
+                continue
+
+            if not self._looks_like_agenda_prose_heading(heading):
+                continue
+
+            details = self._clean_agenda_inline_text(body_text)
+            if not details:
+                continue
+
+            title = self._clean_agenda_inline_text(details.split(".", 1)[0])
+
+            if not title or self._is_calendar_heading_title(title) or self._is_low_quality_activity_title(title):
+                continue
+
+            location, description = self._extract_agenda_location_from_description(details)
+            description, extra_info = self._extract_agenda_extra_info_from_description(description)
+
+            datetime_label = self._clean_agenda_inline_text(heading)
+
+            items.append({
+                "title": self._trim_agenda_title(title),
+                "datetime_label": datetime_label,
+                "location": location,
+                "description": description,
+                "extra_info": extra_info,
+                "image_ref": "",
+            })
+
+        return items
+
+    def _looks_like_agenda_prose_heading(self, heading: str) -> bool:
+        clean = self._clean_agenda_inline_text(heading)
+        if not clean:
+            return False
+        if len(clean) > 90 or "." in clean:
+            return False
+
+        tokens = [token for token in clean.split() if token]
+        if len(tokens) > 14:
+            return False
+
+        if self._looks_like_agenda_day_heading(clean):
+            return True
+
+        dates = self._extract_iso_dates_from_text(clean, self._infer_reference_year(clean))
+        return bool(dates) and len(tokens) <= 8
+
+    def _extract_markdown_agenda_items(self, extracted_text: str) -> List[Dict[str, Any]]:
+        source = str(extracted_text or "")
+        if "**" not in source:
+            return []
+
+        day_heading_re = re.compile(r"^\*\*(.+?)\*\*$")
+        event_line_re = re.compile(
+            r"^\*\*(?P<time>[^*]+?)\*\*\s*[–-]\s*\*\*(?P<title>[^*]+?)\*\*(?:_(?P<desc>.+?)_)?$",
+            re.IGNORECASE,
+        )
+
+        current_day = ""
+        items: List[Dict[str, Any]] = []
+
+        for raw_line in source.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            line = self._clean_text_line(raw_line)
+            if not line:
+                continue
+
+            day_match = day_heading_re.match(line)
+            if day_match:
+                heading_text = self._clean_agenda_inline_text(day_match.group(1))
+                if self._looks_like_agenda_day_heading(heading_text):
+                    current_day = heading_text
+                continue
+
+            event_match = event_line_re.match(line)
+            if not event_match:
+                continue
+
+            time_label = self._clean_agenda_inline_text(event_match.group("time"))
+            title = self._clean_agenda_inline_text(event_match.group("title"))
+            description = self._clean_agenda_inline_text(event_match.group("desc") or "")
+
+            location, description = self._extract_agenda_location_from_description(description)
+            description, extra_info = self._extract_agenda_extra_info_from_description(description)
+
+            datetime_label = f"{current_day} {time_label}".strip() if current_day else time_label
+
+            items.append({
+                "title": self._trim_agenda_title(title),
+                "datetime_label": datetime_label,
+                "location": location,
+                "description": description,
+                "extra_info": extra_info,
+                "image_ref": "",
+            })
+
+        return items
+
+    def _looks_like_agenda_day_heading(self, value: str) -> bool:
+        normalized = self._normalize_token(value).replace("-", " ")
+        tokens = [token for token in re.split(r"\s+", normalized) if token]
+        if not tokens:
+            return False
+        has_day = any(token in AGENDA_DAY_TOKENS for token in tokens)
+        return has_day and bool(re.search(r"\b\d{1,2}\b", value))
+
+    def _extract_agenda_location_from_description(self, description: str) -> tuple[str, str]:
+        text = self._clean_agenda_inline_text(description)
+        if not text:
+            return "", ""
+
+        location_patterns = [
+            r"\bInici\s+a\s+(?:la|l['’]|el)\s+(.+?)(?=(?:\s+Recital\b|\s+Amb\b|\s+Organitza\b|$))",
+            r"\bInici\s+al\s+(.+?)(?=(?:\s+Recital\b|\s+Amb\b|\s+Organitza\b|$))",
+            r"\bA\s+(?:la|l['’]|el)\s+(.+?)(?=(?:\s+Amb\b|\s+Cal\b|\s+Organitza\b|$))",
+            r"\bAl\s+(.+?)(?=(?:\s+Amb\b|\s+Cal\b|\s+Organitza\b|$))",
+        ]
+
+        for pattern in location_patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            location = self._clean_agenda_inline_text(match.group(1))
+            if not location:
+                continue
+            without_location = self._clean_text_line((text[:match.start()] + " " + text[match.end():]).strip(" -–,:;"))
+            return location, without_location
+
+        # Support compact strings like "A la Biblioteca Ramon Vinyes i CluetCal inscripció prèvia"
+        compact_match = re.search(r"\bA\s+(?:la|l['’]|el)\s+(.+?)(Cal\s+inscripci[oó]\s+pr[eè]via)$", text, flags=re.IGNORECASE)
+        if compact_match:
+            location = self._clean_agenda_inline_text(compact_match.group(1))
+            without_location = self._clean_text_line((text[:compact_match.start()] + " " + compact_match.group(2)).strip(" -–,:;"))
+            return location, without_location
+
+        return "", text
+
+    def _extract_agenda_extra_info_from_description(self, description: str) -> tuple[str, str]:
+        text = self._clean_agenda_inline_text(description)
+        if not text:
+            return "", ""
+
+        matches = [self._clean_text_line(match.group(1)) for match in AGENDA_EXTRA_INFO_RE.finditer(text)]
+        if not matches:
+            return text, ""
+
+        seen = set()
+        unique = []
+        for item in matches:
+            normalized = self._normalize_token(item)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            unique.append(item)
+
+        cleaned = AGENDA_EXTRA_INFO_RE.sub("", text)
+        cleaned = self._clean_text_line(cleaned)
+        if self._normalize_token(cleaned) == "cal":
+            cleaned = ""
+        return cleaned, " · ".join(unique)
+
+    def _clean_agenda_inline_text(self, value: str) -> str:
+        text = self._clean_text_line(value)
+        if not text:
+            return ""
+        text = text.replace("**", "").replace("__", " ").replace("_", " ")
+        text = re.sub(r"([a-zà-ÿ])([A-ZÀ-Ý])", r"\1 \2", text)
+        text = re.sub(r"([”\"'])([A-ZÀ-Ý])", r"\1 \2", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip(" -–,:;")
+
+    def _trim_agenda_title(self, value: str) -> str:
+        title = self._clean_agenda_inline_text(value)
+        title = re.sub(r"\s+(?:a\s+la|a\s+l'|al|a)$", "", title, flags=re.IGNORECASE)
+        title = title.strip(" -–,:;")
+        return title
+
+    def _build_source_agenda_items_with_day_context(self, events: Any) -> List[Dict[str, Any]]:
+        if not isinstance(events, list):
+            return []
+
+        items: List[Dict[str, Any]] = []
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+
+            day = self._clean_text_line(event.get("day", ""))
+            datetime_label = self._clean_text_line(event.get("datetime_label", ""))
+            combined_datetime = datetime_label
+            if day:
+                normalized_day = self._normalize_token(day)
+                normalized_datetime = self._normalize_token(datetime_label)
+                if not datetime_label:
+                    combined_datetime = day
+                elif normalized_day and normalized_day not in normalized_datetime:
+                    combined_datetime = f"{day} {datetime_label}".strip()
+
+            title = self._trim_agenda_title(event.get("title", ""))
+            description = self._clean_agenda_inline_text(event.get("description", ""))
+            location = self._clean_agenda_inline_text(event.get("location", "") or event.get("space", ""))
+            extra_info = self._clean_agenda_inline_text(event.get("extra_info", ""))
+
+            if description:
+                extracted_location, description = self._extract_agenda_location_from_description(description)
+                if extracted_location and not location:
+                    location = extracted_location
+                description, extracted_extra = self._extract_agenda_extra_info_from_description(description)
+                if extracted_extra and not extra_info:
+                    extra_info = extracted_extra
+
+            if not title and not description:
+                continue
+
+            items.append({
+                "title": title,
+                "datetime_label": combined_datetime,
+                "location": location,
+                "description": description,
+                "extra_info": extra_info,
+                "image_ref": "",
+            })
+
+        return items
+
+    def _sanitize_agenda_items(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not items:
+            return []
+
+        sanitized: List[Dict[str, Any]] = []
+        seen_signatures = set()
+
+        for item in items:
+            title = re.sub(r"^[\-–—•:;]+\s*", "", self._trim_agenda_title(item.get("title", "")))
+            datetime_label = self._clean_agenda_inline_text(item.get("datetime_label", ""))
+            location = self._clean_agenda_inline_text(item.get("location", ""))
+            description = re.sub(r"^[\-–—•:;]+\s*", "", self._clean_agenda_inline_text(item.get("description", "")))
+            extra_info = self._clean_agenda_inline_text(item.get("extra_info", ""))
+            image_ref = self._clean_text_line(item.get("image_ref", ""))
+
+            if description:
+                extracted_location, description = self._extract_agenda_location_from_description(description)
+                if extracted_location and not location:
+                    location = extracted_location
+                description, extracted_extra = self._extract_agenda_extra_info_from_description(description)
+                if extracted_extra and not extra_info:
+                    extra_info = extracted_extra
+
+            if self._is_low_quality_activity_title(title):
+                if description and not self._is_low_quality_activity_title(description):
+                    title = self._limit_text(description, 140)
+                    description = ""
+                elif location and not self._is_low_quality_activity_title(location):
+                    title = self._limit_text(location, 140)
+
+            if self._is_calendar_heading_title(title) and description and not self._is_low_quality_activity_title(description):
+                title = self._limit_text(description, 140)
+                description = ""
+
+            if not title and description:
+                title = self._limit_text(description, 140)
+                description = ""
+
+            if len(title) > 140 and not description:
+                split_match = re.search(r"\s+(?:Amb|Recital|Presentaci[oó]|Comentem|Dinamitzat|Organitza)\b", title)
+                if split_match:
+                    tail = self._clean_text_line(title[split_match.start():])
+                    title = self._clean_text_line(title[:split_match.start()])
+                    if tail:
+                        description = tail
+
+            if not title and not datetime_label and not location and not description:
+                continue
+
+            if self._is_low_quality_activity_title(title) and not (datetime_label or location or description):
+                continue
+
+            signature = self._normalize_token("|".join([title, datetime_label, location, description, extra_info]))
+            if signature and signature in seen_signatures:
+                continue
+            if signature:
+                seen_signatures.add(signature)
+
+            sanitized.append({
+                "title": title,
+                "datetime_label": datetime_label,
+                "location": location,
+                "description": description,
+                "extra_info": extra_info,
+                "image_ref": image_ref,
+            })
+
+        return sanitized
+
+    def _agenda_items_quality_score(self, items: List[Dict[str, Any]]) -> tuple[int, int, int, int, int, int, int, int]:
+        valid_titles = 0
+        datetime_count = 0
+        location_count = 0
+        description_count = 0
+        low_quality_titles = 0
+        duplicates = 0
+        malformed_titles = 0
+        seen_titles: Dict[str, int] = {}
+
+        for item in items:
+            title = self._clean_text_line(item.get("title", ""))
+            if self._is_low_quality_activity_title(title):
+                low_quality_titles += 1
+            else:
+                valid_titles += 1
+            if len(title) > 120 or re.search(r"\*|_", title):
+                malformed_titles += 1
+
+            if self._clean_text_line(item.get("datetime_label", "")):
+                datetime_count += 1
+            if self._clean_text_line(item.get("location", "")):
+                location_count += 1
+            if self._clean_text_line(item.get("description", "")):
+                description_count += 1
+
+            normalized_title = self._normalize_token(title)
+            if normalized_title:
+                seen_titles[normalized_title] = seen_titles.get(normalized_title, 0) + 1
+
+        for count in seen_titles.values():
+            if count > 1:
+                duplicates += count - 1
+
+        quality = (
+            valid_titles * 6
+            + datetime_count * 3
+            + location_count * 2
+            + description_count
+            - low_quality_titles * 5
+            - duplicates * 2
+            - malformed_titles * 3
+        )
+
+        return (
+            quality,
+            valid_titles,
+            datetime_count,
+            location_count,
+            description_count,
+            -low_quality_titles,
+            -duplicates,
+            len(items),
+        )
+
+    def _is_low_quality_activity_title(self, value: str) -> bool:
+        normalized = self._normalize_token(value).replace("-", " ")
+        if not normalized:
+            return True
+        if normalized in AGENDA_LOW_QUALITY_TITLES:
+            return True
+        compact = normalized.replace(" ", "")
+        return len(compact) <= 2
+
+    def _is_calendar_heading_title(self, value: str) -> bool:
+        normalized = self._normalize_token(value).replace("-", " ")
+        if not normalized:
+            return False
+
+        tokens = [token for token in re.split(r"\s+", normalized) if token]
+        if not tokens:
+            return False
+
+        month_tokens = set(MONTH_NAME_TO_NUMBER.keys())
+
+        def is_month_token(token: str) -> bool:
+            if token in month_tokens:
+                return True
+            if token.startswith("de") and token[2:] in month_tokens:
+                return True
+            if token.startswith("d") and token[1:] in month_tokens:
+                return True
+            return False
+
+        has_day = any(token in AGENDA_DAY_TOKENS for token in tokens)
+        has_month = any(is_month_token(token) for token in tokens)
+        if not has_day and not has_month:
+            return False
+
+        for token in tokens:
+            if token in AGENDA_DAY_TOKENS:
+                continue
+            if token in {"d", "de", "del", "i"}:
+                continue
+            if token.isdigit():
+                continue
+            if is_month_token(token):
+                continue
+            return False
+
+        return True
+
+    def _build_agenda_date_fields(
+        self,
+        fields: Dict[str, Any],
+        items: List[Dict[str, Any]],
+        extracted_text: str,
+    ) -> Dict[str, Any]:
+        reference_year = self._infer_reference_year(extracted_text)
+
+        event_date = self._to_iso_date(fields.get("event_date"), reference_year)
+        start_date = self._to_iso_date(fields.get("start_date"), reference_year)
+        end_date = self._to_iso_date(fields.get("end_date"), reference_year)
+
+        search_dates = self._normalize_iso_date_list(fields.get("search_dates"), reference_year)
+        if not search_dates:
+            search_dates = self._normalize_iso_date_list(fields.get("search_dates_string"), reference_year)
+
+        item_dates: List[str] = []
+        for item in items:
+            item_dates.extend(self._extract_iso_dates_from_text(item.get("datetime_label", ""), reference_year))
+
+        text_dates = self._extract_iso_dates_from_text(extracted_text, reference_year)
+        prominent_text_dates = self._extract_prominent_agenda_dates(extracted_text, reference_year)
+
+        if not item_dates:
+            fallback_dates = prominent_text_dates or text_dates
+            if fallback_dates:
+                return self._build_agenda_date_fields_without_items(fields, fallback_dates)
+
+        all_dates = self._deduplicate_iso_dates(search_dates + item_dates)
+        if not all_dates and text_dates:
+            all_dates = self._deduplicate_iso_dates(text_dates)
+
+        if event_date:
+            all_dates = self._deduplicate_iso_dates([event_date] + all_dates)
+        if start_date:
+            all_dates = self._deduplicate_iso_dates([start_date] + all_dates)
+        if end_date:
+            all_dates = self._deduplicate_iso_dates(all_dates + [end_date])
+
+        if start_date and end_date:
+            range_dates = self._expand_date_range(start_date, end_date)
+            if range_dates:
+                all_dates = self._deduplicate_iso_dates(range_dates + all_dates)
+
+        if not all_dates:
+            return {
+                "event_date": event_date,
+                "start_date": start_date,
+                "end_date": end_date,
+                "search_dates": [],
+            }
+
+        if len(all_dates) == 1:
+            return {
+                "event_date": all_dates[0],
+                "start_date": "",
+                "end_date": "",
+                "search_dates": all_dates,
+            }
+
+        resolved_start = start_date or all_dates[0]
+        resolved_end = end_date or all_dates[-1]
+
+        if start_date and end_date:
+            expanded_search_dates = self._expand_date_range(resolved_start, resolved_end) or all_dates
+        else:
+            candidate_range = self._expand_date_range(resolved_start, resolved_end)
+            if candidate_range and len(candidate_range) <= len(all_dates) + 1:
+                expanded_search_dates = candidate_range
+            else:
+                expanded_search_dates = all_dates
+
+        if resolved_start == resolved_end:
+            return {
+                "event_date": resolved_start,
+                "start_date": "",
+                "end_date": "",
+                "search_dates": [resolved_start],
+            }
+
+        return {
+            "event_date": "",
+            "start_date": resolved_start,
+            "end_date": resolved_end,
+            "search_dates": expanded_search_dates,
+        }
+
+    def _build_agenda_date_fields_without_items(self, fields: Dict[str, Any], text_dates: List[str]) -> Dict[str, Any]:
+        event_date = fields.get("event_date", "")
+        start_date = fields.get("start_date", "")
+        end_date = fields.get("end_date", "")
+
+        configured_dates = self._normalize_iso_date_list(fields.get("search_dates") or fields.get("search_dates_string"))
+        all_dates = self._deduplicate_iso_dates(configured_dates + text_dates)
+        if not all_dates:
+            return {
+                "event_date": event_date,
+                "start_date": start_date,
+                "end_date": end_date,
+                "search_dates": [],
+            }
+
+        if len(all_dates) == 1:
+            return {
+                "event_date": all_dates[0],
+                "start_date": "",
+                "end_date": "",
+                "search_dates": [all_dates[0]],
+            }
+
+        max_span_days = 7
+        if (datetime.strptime(all_dates[-1], "%Y-%m-%d") - datetime.strptime(all_dates[0], "%Y-%m-%d")).days > max_span_days:
+            return {
+                "event_date": "",
+                "start_date": all_dates[0],
+                "end_date": all_dates[-1],
+                "search_dates": all_dates,
+            }
+
+        expanded = self._expand_date_range(all_dates[0], all_dates[-1])
+        return {
+            "event_date": "",
+            "start_date": all_dates[0],
+            "end_date": all_dates[-1],
+            "search_dates": expanded or all_dates,
+        }
+
+    def _extract_prominent_agenda_dates(self, text: str, reference_year: Optional[int] = None) -> List[str]:
+        lines = [self._clean_text_line(line) for line in str(text or "").splitlines() if self._clean_text_line(line)]
+        if not lines:
+            return []
+
+        prominent: List[str] = []
+        for line in lines[:20]:
+            if len(line) > 80:
+                continue
+            normalized = self._normalize_token(line)
+            if normalized in {"programa", "programacio"}:
+                continue
+            if not (self._looks_like_agenda_day_heading(line) or re.search(r"\b\d{1,2}\b", line)):
+                continue
+            prominent.extend(self._extract_iso_dates_from_text(line, reference_year))
+
+        return self._deduplicate_iso_dates(prominent)
+
+    def _build_agenda_activity_export_fields(
+        self,
+        items: List[Dict[str, Any]],
+        fallback_iso_date: str,
+    ) -> Dict[str, str]:
+        items = self._sanitize_agenda_items(items)
+        if not items:
+            return {
+                "activity_titles": "",
+                "activity_dates": "",
+                "activity_locations": "",
+                "activity_descriptions": "",
+                "activity_extra_info": "",
+                "activity_images": "",
+                "activities_backend": "",
+            }
+
+        activity_titles: List[str] = []
+        activity_dates: List[str] = []
+        activity_locations: List[str] = []
+        activity_descriptions: List[str] = []
+        activity_extra_info: List[str] = []
+        activity_images: List[str] = []
+        activities_backend: List[str] = []
+
+        fallback_activity_date = self._to_wp_activity_date(fallback_iso_date, fallback_iso_date)
+
+        for item in items:
+            title = self._clean_text_line(item.get("title", ""))
+            if not title:
+                title = self._clean_text_line(item.get("description", ""))
+            if not title:
+                title = "Activitat"
+
+            datetime_source = " ".join(
+                part for part in [
+                    item.get("datetime_label", ""),
+                    item.get("title", ""),
+                    item.get("description", ""),
+                    item.get("extra_info", ""),
+                ]
+                if str(part or "").strip()
+            )
+            datetime_value = self._to_wp_activity_date(datetime_source, fallback_iso_date)
+            if not datetime_value:
+                datetime_value = fallback_activity_date
+
+            activity_titles.append(title)
+            activities_backend.append(title)
+            activity_dates.append(datetime_value)
+            activity_locations.append(self._clean_text_line(item.get("location", "")))
+            activity_descriptions.append(self._to_activity_html(item.get("description", "")))
+            activity_extra_info.append(self._to_activity_html(item.get("extra_info", "")))
+            activity_images.append(self._clean_text_line(item.get("image_ref", "")))
+
+        return {
+            "activity_titles": "|".join(activity_titles),
+            "activity_dates": "|".join(activity_dates),
+            "activity_locations": "|".join(activity_locations),
+            "activity_descriptions": "|".join(activity_descriptions),
+            "activity_extra_info": "|".join(activity_extra_info),
+            "activity_images": "|".join(activity_images),
+            "activities_backend": "|".join(activities_backend),
+        }
+
+    def _to_activity_html(self, value: str) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return "<p></p>"
+
+        if re.match(r"(?is)^<p(?:\\s[^>]*)?>.*</p>$", raw):
+            return raw
+
+        clean = self._clean_text_line(self._strip_html(raw))
+        return f"<p>{html.escape(clean)}</p>" if clean else "<p></p>"
+
+    def _to_wp_activity_date(self, text: str, fallback_iso_date: str) -> str:
+        reference_year = self._infer_reference_year(text or fallback_iso_date)
+        iso_dates = self._extract_iso_dates_from_text(text, reference_year)
+        if len(iso_dates) > 1:
+            prioritized = self._extract_prominent_agenda_dates(text, reference_year)
+            if prioritized:
+                iso_dates = prioritized + [date for date in iso_dates if date not in prioritized]
+        iso_date = iso_dates[0] if iso_dates else self._to_iso_date(fallback_iso_date, reference_year)
+        if not iso_date:
+            return ""
+
+        parsed_time = self._extract_time_from_text(text)
+        if parsed_time:
+            return f"{datetime.strptime(iso_date, '%Y-%m-%d').strftime('%m/%d/%Y')} {parsed_time}"
+
+        try:
+            return datetime.strptime(iso_date, "%Y-%m-%d").strftime("%m/%d/%Y")
+        except Exception:
+            return ""
+
+    def _extract_time_from_text(self, text: str) -> str:
+        source = self._clean_text_line(text)
+        if not source:
+            return ""
+
+        range_match = re.search(
+            r"\b(?:a\s+partir\s+de\s+les|de\s+les|de\s+|a\s+les|les)?\s*(\d{1,2})(?::|\.)(\d{2})\s*h?\b",
+            source,
+            flags=re.IGNORECASE,
+        )
+        if range_match:
+            hour = int(range_match.group(1))
+            minute = int(range_match.group(2))
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                return f"{hour:02d}:{minute:02d}"
+
+        hour_only_match = re.search(
+            r"\b(?:a\s+partir\s+de\s+les|de\s+les|de\s+|a\s+les|les)?\s*(\d{1,2})\s*h\b",
+            source,
+            flags=re.IGNORECASE,
+        )
+        if hour_only_match:
+            hour = int(hour_only_match.group(1))
+            if 0 <= hour <= 23:
+                return f"{hour:02d}:00"
+
+        return ""
+
+    def _normalize_iso_date_list(self, value: Any, reference_year: Optional[int] = None) -> List[str]:
+        raw_values: List[str] = []
+        if isinstance(value, list):
+            raw_values = [str(item) for item in value if str(item or "").strip()]
+        elif isinstance(value, str):
+            separators = ["|", ",", ";", "\n"]
+            chunks = [value]
+            for separator in separators:
+                next_chunks = []
+                for chunk in chunks:
+                    next_chunks.extend(chunk.split(separator))
+                chunks = next_chunks
+            raw_values = [chunk.strip() for chunk in chunks if chunk.strip()]
+
+        normalized: List[str] = []
+        for raw in raw_values:
+            normalized.extend(self._extract_iso_dates_from_text(raw, reference_year))
+            direct = self._to_iso_date(raw, reference_year)
+            if direct:
+                normalized.append(direct)
+        return self._deduplicate_iso_dates(normalized)
+
+    def _extract_iso_dates_from_text(self, text: str, reference_year: Optional[int] = None) -> List[str]:
+        source = str(text or "")
+        default_year = reference_year or datetime.now().year
+        dates: List[str] = []
+
+        range_month_pattern = re.compile(
+            r"\b(?:[A-Za-zÀ-ÿ]+\s+)?(\d{1,2})\s*(?:i|y)\s*(?:[A-Za-zÀ-ÿ]+\s+)?(\d{1,2})\s*(?:(?:de|d['’])\s*)?([A-Za-zÀ-ÿ]+)(?:\s*(?:(?:de|d['’])\s*)?(\d{2,4})(?!\s*[:h]))?\b",
+            re.IGNORECASE,
+        )
+        for match in range_month_pattern.finditer(source):
+            left_day = int(match.group(1))
+            right_day = int(match.group(2))
+            month = self._month_from_name(match.group(3))
+            if not month:
+                continue
+            year_raw = match.group(4)
+            year = int(year_raw) if year_raw else default_year
+            if year < 100:
+                year += 2000
+            left_iso = self._build_iso_date(year, month, left_day)
+            right_iso = self._build_iso_date(year, month, right_day)
+            if left_iso:
+                dates.append(left_iso)
+            if right_iso:
+                dates.append(right_iso)
+
+        for match in re.finditer(r"\b(\d{4})[/-](\d{1,2})[/-](\d{1,2})\b", source):
+            iso = self._build_iso_date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+            if iso:
+                dates.append(iso)
+
+        for match in re.finditer(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b", source):
+            left = int(match.group(1))
+            right = int(match.group(2))
+            year = int(match.group(3))
+            if year < 100:
+                year += 2000
+
+            day = left
+            month = right
+            if left <= 12 and right > 12:
+                month = left
+                day = right
+
+            iso = self._build_iso_date(year, month, day)
+            if iso:
+                dates.append(iso)
+
+        month_pattern = re.compile(
+            r"\b(\d{1,2})\s*(?:(?:de|d['’])\s*)?([A-Za-zÀ-ÿ]+)(?:\s*(?:(?:de|d['’])\s*)?(\d{2,4})(?!\s*[:h]))?\b",
+            re.IGNORECASE,
+        )
+        for match in month_pattern.finditer(source):
+            day = int(match.group(1))
+            month = self._month_from_name(match.group(2))
+            if not month:
+                continue
+            year_raw = match.group(3)
+            year = int(year_raw) if year_raw else default_year
+            if year < 100:
+                year += 2000
+            iso = self._build_iso_date(year, month, day)
+            if iso:
+                dates.append(iso)
+
+        month_first_pattern = re.compile(r"\b([A-Za-zÀ-ÿ]+)\s+(\d{1,2})(?!\d)(?!\s*[:h])(?:,?\s+(\d{2,4}))?\b")
+        for match in month_first_pattern.finditer(source):
+            prefix_window = source[max(0, match.start() - 20):match.start()].lower()
+            if re.search(r"\b(?:dilluns|dimarts|dimecres|dijous|divendres|dissabte|diumenge|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)\s*$", prefix_window):
+                continue
+            month = self._month_from_name(match.group(1))
+            if not month:
+                continue
+            day = int(match.group(2))
+            year_raw = match.group(3)
+            year = int(year_raw) if year_raw else default_year
+            if year < 100:
+                year += 2000
+            iso = self._build_iso_date(year, month, day)
+            if iso:
+                dates.append(iso)
+
+        valid_month_values = set(MONTH_NAME_TO_NUMBER.values())
+
+        day_name_pattern = re.compile(r"\b(?:dilluns|dimarts|dimecres|dijous|divendres|dissabte|diumenge|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)\b", re.IGNORECASE)
+
+        filtered_dates: List[str] = []
+        for iso in self._deduplicate_iso_dates(dates):
+            if not day_name_pattern.search(source):
+                filtered_dates.append(iso)
+                continue
+
+            month_value = int(iso[5:7])
+            if month_value in valid_month_values:
+                filtered_dates.append(iso)
+
+        return self._deduplicate_iso_dates(filtered_dates)
+
+    def _month_from_name(self, value: str) -> int:
+        normalized = self._normalize_token(value).replace(" ", "")
+        if normalized.startswith("de") and normalized[2:] in MONTH_NAME_TO_NUMBER:
+            return MONTH_NAME_TO_NUMBER[normalized[2:]]
+        if normalized.startswith("d") and normalized[1:] in MONTH_NAME_TO_NUMBER:
+            return MONTH_NAME_TO_NUMBER[normalized[1:]]
+        return MONTH_NAME_TO_NUMBER.get(normalized, 0)
+
+    def _build_iso_date(self, year: int, month: int, day: int) -> str:
+        try:
+            parsed = datetime(year, month, day)
+            return parsed.strftime("%Y-%m-%d")
+        except Exception:
+            return ""
+
+    def _to_iso_date(self, value: Any, reference_year: Optional[int] = None) -> str:
+        if not value:
+            return ""
+        extracted = self._extract_iso_dates_from_text(str(value), reference_year)
+        return extracted[0] if extracted else ""
+
+    def _deduplicate_iso_dates(self, dates: List[str]) -> List[str]:
+        unique = sorted({date for date in dates if re.match(r"^\d{4}-\d{2}-\d{2}$", date)})
+        return unique
+
+    def _expand_date_range(self, start_date: str, end_date: str) -> List[str]:
+        if not start_date or not end_date:
+            return []
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d")
+            end = datetime.strptime(end_date, "%Y-%m-%d")
+        except Exception:
+            return []
+
+        if end < start:
+            start, end = end, start
+        total_days = (end - start).days
+        if total_days > 366:
+            return [start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")]
+
+        return [
+            (start + timedelta(days=offset)).strftime("%Y-%m-%d")
+            for offset in range(total_days + 1)
+        ]
+
+    def _infer_reference_year(self, text: str) -> int:
+        for match in re.finditer(r"\b(20\d{2})\b", str(text or "")):
+            year = int(match.group(1))
+            if 2000 <= year <= 2100:
+                return year
+        return datetime.now().year
+
+    def _normalize_agenda_category(self, value: str) -> str:
+        if not value:
+            return ""
+
+        chunks = [chunk.strip() for chunk in re.split(r"[|,;/]", value) if chunk.strip()]
+        if not chunks:
+            chunks = [self._clean_text_line(value)]
+
+        normalized_options = {
+            self._normalize_token(option): option
+            for option in AGENDA_CATEGORY_OPTIONS
+        }
+
+        for chunk in chunks:
+            normalized_chunk = self._normalize_token(chunk)
+            if normalized_chunk in normalized_options:
+                return normalized_options[normalized_chunk]
+            for token, option in normalized_options.items():
+                if normalized_chunk == token or normalized_chunk in token or token in normalized_chunk:
+                    return option
+        return ""
+
+    def _infer_agenda_category(self, text: str, items: List[Dict[str, Any]]) -> str:
+        composed = [str(text or "")]
+        for item in items:
+            composed.extend([
+                item.get("title", ""),
+                item.get("datetime_label", ""),
+                item.get("location", ""),
+                item.get("description", ""),
+                item.get("extra_info", ""),
+            ])
+
+        normalized = self._normalize_token("\n".join(composed))
+        if not normalized:
+            return ""
+
+        best_category = ""
+        best_score = 0
+        tied = False
+
+        for category, keywords in AGENDA_CATEGORY_KEYWORDS.items():
+            score = sum(1 for keyword in keywords if self._normalize_token(keyword) in normalized)
+            if score > best_score:
+                best_category = category
+                best_score = score
+                tied = False
+            elif score and score == best_score:
+                tied = True
+
+        if best_score < 2 or tied:
+            return ""
+        return best_category
+
     def _extract_content_items_from_source(self, body_text: str, category: str) -> List[Dict[str, Any]]:
         if category == "AGENDA":
-            return agenda_events_to_content_items(parse_agenda(body_text).get("events", []))
+            markdown_items = self._sanitize_agenda_items(self._extract_markdown_agenda_items(body_text))
+            parser_items = self._sanitize_agenda_items(
+                self._build_source_agenda_items_with_day_context(parse_agenda(body_text).get("events", []))
+            )
+            candidates = [items for items in [markdown_items, parser_items] if items]
+            if not candidates:
+                return []
+            return max(candidates, key=self._agenda_items_quality_score)
 
         chunks = self._source_chunks(body_text)
         if len(chunks) < 4:
@@ -1090,29 +2230,25 @@ class EditorialBuilderService:
         if category == "AGENDA":
             parsed = parse_agenda(body_text)
             html_parts = []
-            summary_text = self._clean_text_line(summary)
-            if summary_text:
-                html_parts.append(f'<p class="agenda-standfirst"><strong>{html.escape(summary_text)}</strong></p>')
-            intro_blocks = self._extract_agenda_intro_blocks(draft_body_html)
-            used_intro_text = self._normalize_token(self._strip_html(" ".join(intro_blocks)))
+            events = parsed.get("events", [])
+            intro_blocks = self._extract_agenda_intro_blocks(draft_body_html, events)
             intro_section_parts = []
             for block in intro_blocks:
                 intro_section_parts.append(self._style_agenda_intro_block(block))
-            for chunk in parsed.get("intro", []):
-                normalized_chunk = self._normalize_token(chunk)
-                if normalized_chunk and normalized_chunk not in used_intro_text:
-                    intro_section_parts.append(f'<p>{html.escape(chunk)}</p>')
+            if not intro_section_parts:
+                fallback_summary = self._clean_agenda_summary(summary)
+                if fallback_summary:
+                    intro_section_parts.append(f'<p>{html.escape(fallback_summary)}</p>')
             if intro_section_parts:
                 html_parts.append('<section class="agenda-intro">')
                 html_parts.extend(intro_section_parts)
                 html_parts.append('</section>')
             for highlight in parsed.get("highlights", []):
                 html_parts.append(render_highlight_box(highlight))
-            events = parsed.get("events", [])
-            if events:
+            include_program_markup = not bool(listing_items)
+            if include_program_markup and events:
                 html_parts.append('<h2 class="agenda-program-title">Programa</h2>')
                 html_parts.append(render_agenda_html(events))
-            html_parts.extend(self._render_agenda_trailing_blocks(parsed.get("trailing", [])))
             return "\n".join(part for part in html_parts if part)
 
         chunks = self._source_chunks(body_text)
@@ -1156,23 +2292,93 @@ class EditorialBuilderService:
 
         return "\n".join(html_parts)
 
-    def _extract_agenda_intro_blocks(self, draft_body_html: str) -> List[str]:
+    def _extract_agenda_intro_blocks(self, draft_body_html: str, events: Optional[List[Dict[str, Any]]] = None) -> List[str]:
         if not draft_body_html:
             return []
         blocks = self._split_html_blocks(draft_body_html)
         intro_blocks = []
+        seen_intro_tokens: List[str] = []
+        events = events or []
+        reached_program_section = False
         for block in blocks:
             if 'class="agenda-' in block or 'class="panxing-inline-image"' in block or 'class="highlight-box"' in block:
                 continue
             plain = self._clean_text_line(self._strip_html(block))
             if not plain:
                 continue
+            if self._looks_like_agenda_program_chunk(plain, events):
+                reached_program_section = True
+                continue
+            if reached_program_section:
+                continue
             if re.search(r"\b\d{1,2}(?::\d{2})?\s*h\b", plain.lower()):
                 continue
+            normalized_plain = self._normalize_token(plain)
+            if normalized_plain and any(
+                normalized_plain in existing or existing in normalized_plain
+                for existing in seen_intro_tokens
+            ):
+                continue
+            if normalized_plain:
+                seen_intro_tokens.append(normalized_plain)
             intro_blocks.append(block)
             if len(intro_blocks) >= 4:
                 break
         return intro_blocks
+
+    def _clean_agenda_summary(self, summary: str) -> str:
+        clean = self._clean_text_line(self._strip_html(summary))
+        if not clean:
+            return ""
+
+        day_tokens = r"dilluns|dimarts|dimecres|dijous|divendres|dissabte|diumenge|lunes|martes|miercoles|jueves|viernes|sabado|domingo"
+        clean = re.split(rf"(?i)\bprograma(?:ci[oó])?\b\s+(?=(?:{day_tokens})\b)", clean, maxsplit=1)[0].strip(" -,:;")
+        clean = re.sub(rf"(?i)\b(?:{day_tokens})\b,?\s+\d{{1,2}}(?:\s*(?:de|d['’]))?\s+[a-zà-ÿ]+.*$", "", clean).strip(" -,:;")
+
+        sentence_parts = [
+            self._clean_text_line(part)
+            for part in re.split(r"(?<=[.!?])\s+", clean)
+            if self._clean_text_line(part)
+        ]
+        if sentence_parts:
+            first_sentence = sentence_parts[0]
+            if len(first_sentence) >= 45:
+                clean = first_sentence
+            elif len(sentence_parts) >= 2:
+                clean = f"{first_sentence} {sentence_parts[1]}"
+
+        return self._limit_text(clean, 220)
+
+    def _looks_like_agenda_program_chunk(self, text: str, events: Optional[List[Dict[str, Any]]] = None) -> bool:
+        clean = self._clean_text_line(self._strip_html(text))
+        if not clean:
+            return False
+
+        normalized = self._normalize_token(clean).replace("-", " ")
+        if normalized in {"programa", "programacio"}:
+            return True
+        if normalized.startswith("programa ") or normalized.startswith("programacio "):
+            return True
+        if self._looks_like_agenda_day_heading(clean):
+            return True
+
+        events = events or []
+        normalized_clean = self._normalize_token(clean)
+        for event in events:
+            title = self._clean_text_line(event.get("title", ""))
+            if not title:
+                continue
+            normalized_title = self._normalize_token(title)
+            if not normalized_title:
+                continue
+            if len(normalized_title) >= 15 and (
+                normalized_clean == normalized_title
+                or normalized_clean in normalized_title
+                or normalized_title in normalized_clean
+            ):
+                return True
+
+        return False
 
     def _style_agenda_intro_block(self, block: str) -> str:
         if block.startswith("<h"):
@@ -1487,6 +2693,56 @@ class EditorialBuilderService:
         selected = " ".join(sentence for sentence in sentences[:2] if sentence).strip()
         return self._limit_text(selected or plain_text, 260)
 
+    def _remove_summary_duplication_from_body(self, body_html: str, summary: str) -> str:
+        clean_summary = self._normalize_token(self._strip_html(summary))
+        if not clean_summary:
+            return body_html
+
+        blocks = self._split_html_blocks(body_html)
+        if not blocks:
+            return body_html
+
+        filtered_blocks = []
+        summary_tokens = self._tokenize_for_matching(clean_summary)
+        leading_text_blocks = 0
+        for block in blocks:
+            block_text = self._normalize_token(self._strip_html(block))
+            if not block_text:
+                continue
+
+            if not re.match(r"(?is)^<h[1-6][^>]*>", block.strip()):
+                leading_text_blocks += 1
+
+            if leading_text_blocks <= 4 and self._is_summary_duplicate_block(block_text, clean_summary, summary_tokens):
+                continue
+
+            filtered_blocks.append(block)
+
+        return "\n".join(filtered_blocks) if filtered_blocks else body_html
+
+    def _is_summary_duplicate_block(self, block_text: str, clean_summary: str, summary_tokens: set) -> bool:
+        if clean_summary == block_text or clean_summary in block_text:
+            return True
+
+        if block_text in clean_summary and len(block_text) >= max(40, int(len(clean_summary) * 0.2)):
+            return True
+
+        block_tokens = self._tokenize_for_matching(block_text)
+        if block_tokens and summary_tokens:
+            overlap_ratio = len(block_tokens.intersection(summary_tokens)) / max(1, len(block_tokens))
+            if overlap_ratio >= 0.85 and len(block_tokens) >= 6:
+                return True
+
+            first_words = " ".join(block_text.split()[:12])
+            if (
+                len(first_words) >= 35
+                and len(block_text) <= int(len(clean_summary) * 1.15)
+                and self._normalize_token(first_words) in clean_summary
+            ):
+                return True
+
+        return False
+
     def _sanitize_body_html(self, body_html: str, body_text: str, title: str, source_context: Dict[str, Any]) -> str:
         normalized_body = (body_html or "").strip()
         if not normalized_body:
@@ -1496,7 +2752,7 @@ class EditorialBuilderService:
         normalized_body = self._apply_highlighted_block_format(normalized_body)
 
         author_note = self._build_author_note_html(source_context.get("author_source", ""))
-        if author_note:
+        if author_note and self._normalize_token(self._strip_html(author_note)) not in self._normalize_token(self._strip_html(normalized_body)):
             normalized_body = f"{normalized_body}\n{author_note}".strip()
 
         return normalized_body

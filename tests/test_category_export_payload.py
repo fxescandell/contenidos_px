@@ -25,6 +25,22 @@ def test_build_strict_payload_only_marks_matching_municipality():
     assert payload["municipality"] == "Maresme"
 
 
+def test_build_strict_payload_maps_bergueda_display_name_with_accent():
+    example_payload = {
+        "municipi-maresme": "",
+        "municipi-cerdanya": "",
+        "municipi-bergueda": "",
+    }
+
+    payload = build_strict_payload_from_example(example_payload, {
+        "municipality": "BERGUEDA",
+    })
+
+    assert payload["municipi-maresme"] == ""
+    assert payload["municipi-cerdanya"] == ""
+    assert payload["municipi-bergueda"] == "Berguedà"
+
+
 def test_normalize_strict_payload_repairs_municipality_slots_from_direct_payload():
     payload = {
         "municipi-maresme": "Maresme",
@@ -117,6 +133,18 @@ def test_build_strict_payload_populates_agenda_activities_field():
     assert payload["activitats"] == activities
 
 
+def test_build_strict_payload_uses_pipe_separator_for_agenda_search_dates_string():
+    example_payload = {
+        "dates-que-es-realitza-buscador": "{{search_dates_string}}",
+    }
+
+    payload = build_strict_payload_from_example(example_payload, {
+        "search_dates": ["2026-04-17", "2026-04-18", "2026-04-19"],
+    })
+
+    assert payload["dates-que-es-realitza-buscador"] == "2026-04-17|2026-04-18|2026-04-19"
+
+
 def test_normalize_strict_payload_exact_fields_repairs_seo_and_fixed_template_fields():
     payload = {
         "post_content": "incorrecte",
@@ -136,3 +164,49 @@ def test_normalize_strict_payload_exact_fields_repairs_seo_and_fixed_template_fi
     assert normalized["rank_math_description"] == "Descripcio SEO final."
     assert normalized["elementor_library_category"] == ""
     assert normalized["article-destacat"] == "1"
+
+
+def test_normalize_strict_payload_exact_fields_repairs_agenda_program_fields():
+    payload = {
+        "categoria-d-agenda": "Concert",
+        "data-esdeveniment": "",
+        "data-inici": "",
+        "data-final": "",
+        "dates-que-es-realitza-buscador": "",
+        "titol-activitat": "",
+        "data-i-hora-activitat": "",
+        "on-es-realitza-l-activitat": "",
+        "descripcio-activitat": "",
+        "informacio-adicional": "",
+        "imatge-activitat": "",
+        "activitats": "",
+    }
+
+    normalized = normalize_strict_payload_exact_fields(payload, {
+        "agenda_category": "Agenda d'esports",
+        "event_date": "2026-04-17",
+        "start_date": "",
+        "end_date": "",
+        "search_dates": ["2026-04-17"],
+        "search_dates_string": "2026-04-17",
+        "activity_titles": "Cursa popular",
+        "activity_dates": "04/17/2026",
+        "activity_locations": "Plaça Major",
+        "activity_descriptions": "<p>Recorregut urbà de 5 km.</p>",
+        "activity_extra_info": "<p>Inscripció prèvia</p>",
+        "activity_images": "https://example.com/cursa.jpg",
+        "activities_backend": "Cursa popular",
+    })
+
+    assert normalized["categoria-d-agenda"] == "Agenda d'esports"
+    assert normalized["data-esdeveniment"] == "2026-04-17"
+    assert normalized["data-inici"] == ""
+    assert normalized["data-final"] == ""
+    assert normalized["dates-que-es-realitza-buscador"] == "2026-04-17"
+    assert normalized["titol-activitat"] == "Cursa popular"
+    assert normalized["data-i-hora-activitat"] == "04/17/2026"
+    assert normalized["on-es-realitza-l-activitat"] == "Plaça Major"
+    assert normalized["descripcio-activitat"] == "<p>Recorregut urbà de 5 km.</p>"
+    assert normalized["informacio-adicional"] == "<p>Inscripció prèvia</p>"
+    assert normalized["imatge-activitat"] == "https://example.com/cursa.jpg"
+    assert normalized["activitats"] == "Cursa popular"
