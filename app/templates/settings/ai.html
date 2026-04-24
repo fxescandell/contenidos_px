@@ -143,6 +143,11 @@
                 <div class="section-box">
                     <h3>Pruebas</h3>
                     <p class="desc">Verifica la conexion con los proveedores de IA configurados.</p>
+                    <div class="form-group" style="max-width:260px;">
+                        <label for="llm-timeout-seconds">Timeout LLM (segundos)</label>
+                        <input id="llm-timeout-seconds" type="number" name="setting_llm_timeout_seconds" value="{{ values.llm_timeout_seconds or 300 }}" min="10" max="1200">
+                        <span class="help-text">Tiempo maximo de espera para respuestas del modelo. Recomendado: 180-300 para Ollama local.</span>
+                    </div>
                     <div class="btn-group">
                         <button type="button" class="btn btn-test" onclick="testActiveLlm()">Probar conexion activa</button>
                     </div>
@@ -170,9 +175,31 @@
         let connections = {{ connections_json | safe }};
         const savedVisionConnId = "{{ values.ocr_vision_connection_id or '' }}";
         const expandedConnectionIds = new Set();
-        connections.forEach(c => {
-            if (c.active) expandedConnectionIds.add(c.id);
-        });
+
+        function defaultBaseUrl(provider) {
+            if (provider === 'ollama') return 'http://localhost:11434';
+            return '';
+        }
+
+        function normalizeConnection(c) {
+            const provider = c.provider || 'openai';
+            return {
+                id: c.id || crypto.randomUUID(),
+                name: c.name || 'Conexion',
+                provider,
+                api_key: c.api_key || '',
+                model: c.model || '',
+                base_url: (c.base_url || defaultBaseUrl(provider) || '').trim(),
+                temperature: typeof c.temperature === 'number' ? c.temperature : (parseFloat(c.temperature) || 0.3),
+                enabled: c.enabled !== false,
+                active: c.active === true,
+                models: Array.isArray(c.models) ? c.models : [],
+                force_vision: c.force_vision === true,
+            };
+        }
+
+        connections = Array.isArray(connections) ? connections.map(normalizeConnection) : [];
+        connections.forEach(c => { if (c.active) expandedConnectionIds.add(c.id); });
 
         function escapeHtml(s) {
             if (!s) return '';
@@ -190,6 +217,7 @@
                 provider: "openai",
                 api_key: "",
                 model: "",
+                base_url: "",
                 temperature: 0.3,
                 enabled: true,
                 active: !connections.some(c => c.active),
@@ -230,6 +258,9 @@
             if (field === 'provider') {
                 connections[i].models = [];
                 connections[i].model = '';
+                if (!connections[i].base_url || connections[i].base_url.trim() === '' || connections[i].base_url.includes('localhost:11434')) {
+                    connections[i].base_url = defaultBaseUrl(value);
+                }
             }
             syncJsonInput();
         }
@@ -280,7 +311,7 @@
                 const res = await fetch('/settings/test/fetch-models', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ provider: c.provider, api_key: c.api_key })
+                    body: JSON.stringify({ provider: c.provider, api_key: c.api_key, base_url: c.base_url || '' })
                 });
                 const data = await res.json();
                 if (data.success && data.models.length > 0) {
@@ -476,6 +507,11 @@
                                 </label>
                             </div>
                             <span class="help-text">Activalo si el modelo soporta vision pero no aparece detectado automaticamente, por ejemplo en algunos modelos de Ollama.</span>
+                        </div>
+                        <div class="form-group">
+                            <label>Base URL (opcional)</label>
+                            <input type="text" value="${escapeHtml(c.base_url || '')}" onchange="updateField(${i},'base_url',this.value.trim())" placeholder="${c.provider === 'ollama' ? 'http://localhost:11434' : 'https://api.tu-proveedor.com/v1'}">
+                            <span class="help-text">Para Ollama en local usa normalmente http://localhost:11434. Si no se rellena, se usara la URL por defecto del proveedor.</span>
                         </div>
                         <div class="btn-group" style="margin-top:8px;">
                             <button type="button" class="btn btn-test btn-sm" onclick="testConnection(${i})">Probar esta conexion</button>

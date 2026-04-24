@@ -634,8 +634,8 @@ class EditorialBuilderService:
         )
         reviewed_body_html = self._sanitize_body_html(reviewed_body_html, original_text, reviewed_title, source_context)
         reviewed_body_html = self._enhance_html_structure(reviewed_body_html, metadata.get("category") or category)
-        if (metadata.get("category") or category) == "AGENDA":
-            reviewed_body_html = self._remove_summary_duplication_from_body(reviewed_body_html, reviewed_summary)
+        reviewed_summary = self._ensure_summary_not_duplicate_with_body(reviewed_summary, reviewed_body_html)
+        reviewed_body_html = self._remove_summary_duplication_from_body(reviewed_body_html, reviewed_summary)
 
         featured_image_path = structured_fields.get("rank_math_facebook_image") or structured_fields.get("_featured_image_path") or (images[0].optimized_path if images and images[0].optimized_path else "")
         seo_fields = self._build_seo_fields(
@@ -713,8 +713,8 @@ class EditorialBuilderService:
             metadata.get("category") or "",
             listing_items,
         )
-        if (metadata.get("category") or "") == "AGENDA":
-            sanitized_body_html = self._remove_summary_duplication_from_body(sanitized_body_html, final_summary)
+        final_summary = self._ensure_summary_not_duplicate_with_body(final_summary, sanitized_body_html)
+        sanitized_body_html = self._remove_summary_duplication_from_body(sanitized_body_html, final_summary)
         listing_items = self._assign_activity_image_refs(
             listing_items,
             images,
@@ -2718,7 +2718,104 @@ class EditorialBuilderService:
 
             filtered_blocks.append(block)
 
-        return "\n".join(filtered_blocks) if filtered_blocks else body_html
+        if filtered_blocks:
+            return "\n".join(filtered_blocks)
+
+        shortened_first_block = self._trim_summary_from_first_block(blocks[0], clean_summary)
+        if shortened_first_block:
+            remainder = [shortened_first_block] + blocks[1:]
+            return "\n".join(remainder)
+
+        return body_html
+
+    def _ensure_summary_not_duplicate_with_body(self, summary: str, body_html: str) -> str:
+        clean_summary = self._clean_text_line(self._strip_html(summary))
+        if not clean_summary:
+            return summary
+
+        blocks = self._split_html_blocks(body_html)
+        if not blocks:
+            return clean_summary
+
+        first_text_block = ""
+        for block in blocks[:4]:
+            if re.match(r"(?is)^<h[1-6][^>]*>", block.strip()):
+                continue
+            first_text_block = self._clean_text_line(self._strip_html(block))
+            if first_text_block:
+                break
+
+        if not first_text_block:
+            return clean_summary
+
+        normalized_summary = self._normalize_token(clean_summary)
+        normalized_first_block = self._normalize_token(first_text_block)
+        if not normalized_summary or not normalized_first_block:
+            return clean_summary
+
+        summary_tokens = self._tokenize_for_matching(normalized_summary)
+        if not self._is_summary_duplicate_block(normalized_first_block, normalized_summary, summary_tokens):
+            return clean_summary
+
+        teaser = self._build_short_subheadline(clean_summary)
+        if teaser and self._normalize_token(teaser) != normalized_first_block:
+            return teaser
+
+        return clean_summary
+
+    def _build_short_subheadline(self, text: str) -> str:
+        clean_text = self._clean_text_line(text)
+        if not clean_text:
+            return ""
+
+        clauses = [segment.strip(" ,;:-") for segment in re.split(r"[,;:]", clean_text) if segment.strip()]
+        if clauses:
+            first_clause = self._limit_text(clauses[0], 160)
+            if len(first_clause) >= 40:
+                return first_clause
+
+        words = clean_text.split()
+        if len(words) <= 12:
+            return self._limit_text(clean_text, 120)
+
+        shortened = " ".join(words[:12]).rstrip(" ,;:-")
+        return f"{shortened}..."
+
+    def _trim_summary_from_first_block(self, first_block: str, clean_summary: str) -> str:
+        stripped = first_block.strip()
+        if not re.match(r"(?is)^<p[^>]*>.*</p>$", stripped):
+            return ""
+
+        plain = self._normalize_token(self._strip_html(stripped))
+        if not plain:
+            return ""
+
+        plain_sentences = [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", plain) if segment.strip()]
+        if not plain_sentences:
+            return ""
+
+        summary_sentences = [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", clean_summary) if segment.strip()]
+        summary_head = summary_sentences[0] if summary_sentences else clean_summary
+
+        if not (plain.startswith(clean_summary) or plain.startswith(summary_head)):
+            return ""
+
+        remaining_sentences = plain_sentences[:]
+        while remaining_sentences:
+            head = self._normalize_token(remaining_sentences[0])
+            if head and (head in clean_summary or clean_summary.startswith(head)):
+                remaining_sentences.pop(0)
+                continue
+            break
+
+        if not remaining_sentences:
+            return ""
+
+        remaining_text = self._clean_text_line(" ".join(remaining_sentences))
+        if len(remaining_text) < 30:
+            return ""
+
+        return f"<p>{html.escape(remaining_text)}</p>"
 
     def _is_summary_duplicate_block(self, block_text: str, clean_summary: str, summary_tokens: set) -> bool:
         if clean_summary == block_text or clean_summary in block_text:

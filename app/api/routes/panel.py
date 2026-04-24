@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from uuid import UUID
 from datetime import datetime
+from pathlib import Path
 
 from app.db.session import get_db
 from app.db.repositories.all_repos import source_batch_repo, content_candidate_repo, processing_event_repo
@@ -13,13 +14,43 @@ from app.core.states import BatchStatus
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
+
+def _compute_workspace_assets_version() -> str:
+    latest_mtime_ns = 0
+    asset_roots = [
+        (Path("app/static/js"), "*.js"),
+        (Path("app/static/css"), "*.css"),
+    ]
+    for root, pattern in asset_roots:
+        if not root.exists():
+            continue
+        for asset in root.rglob(pattern):
+            try:
+                latest_mtime_ns = max(latest_mtime_ns, asset.stat().st_mtime_ns)
+            except OSError:
+                continue
+
+    if latest_mtime_ns <= 0:
+        return datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    return str(latest_mtime_ns)
+
+
 ACTIVE_STATUSES = [BatchStatus.DETECTED, BatchStatus.COPYING, BatchStatus.COPIED,
                     BatchStatus.SCANNED, BatchStatus.GROUPED, BatchStatus.PROCESSING]
 
+WORKSPACE_PAGES = {
+    "dashboard": "Dashboard",
+    "manual-article": "Articulo manual",
+    "manual-batches": "Lotes manuales",
+    "preprocess": "Preprocesado",
+    "final-review": "Revision final",
+    "activity": "Actividad",
+}
 
-@router.get("/", response_class=HTMLResponse)
-def dashboard_home(request: Request, db: Session = Depends(get_db)):
-    from app.services.settings.service import SettingsResolver
+
+def _build_workspace_context(db: Session) -> dict:
+    from app.services.settings.service import SettingsResolver, SettingsService
+
     SettingsResolver.reload(db)
     active_mode = SettingsResolver.get("active_source_mode", "smb") or "smb"
 
@@ -34,7 +65,6 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
         "review": sum(1 for b in all_batches if b.status == BatchStatus.REVIEW_REQUIRED),
     }
 
-    from app.services.settings.service import SettingsService
     SettingsService.initialize_defaults(db)
 
     batches_data = []
@@ -58,17 +88,36 @@ def dashboard_home(request: Request, db: Session = Depends(get_db)):
 
     municipalities = sorted(set(b["municipality"] for b in batches_data if b["municipality"]))
 
-    return templates.TemplateResponse(
-        request=request,
-        name="index.html",
-        context={
-            "stats": stats,
-            "batches": batches_data,
-            "active_mode": active_mode,
-            "municipalities": municipalities,
-            "has_active": stats["active"] > 0,
+    return {
+        "stats": stats,
+        "batches": batches_data,
+        "active_mode": active_mode,
+        "municipalities": municipalities,
+        "has_active": stats["active"] > 0,
+        "workspace_assets_version": _compute_workspace_assets_version(),
+    }
+
+
+@router.get("/", response_class=HTMLResponse)
+def dashboard_home(request: Request, db: Session = Depends(get_db)):
+    return RedirectResponse(url="/workspace/dashboard", status_code=302)
+
+
+@router.get("/workspace/{page}", response_class=HTMLResponse)
+def workspace_page(request: Request, page: str, db: Session = Depends(get_db)):
+    if page == "configuration":
+        return RedirectResponse(url="/settings", status_code=302)
+    if page not in WORKSPACE_PAGES:
+        return RedirectResponse(url="/workspace/dashboard", status_code=302)
+
+    context = _build_workspace_context(db)
+    context.update(
+        {
+            "workspace_page": page,
+            "workspace_title": WORKSPACE_PAGES[page],
         }
     )
+    return templates.TemplateResponse(request=request, name="index.html", context=context)
 
 
 @router.get("/api/batches", response_class=JSONResponse)
@@ -94,7 +143,7 @@ def api_batches(request: Request, db: Session = Depends(get_db)):
         batches_data.append({
             "id": str(b.id),
             "external_name": b.external_name,
-            "municipality": b.municipality,
+            "municipality": getattr(b, "municipality_hint", None),
             "category": b.category_hint,
             "status": b.status.value if b.status else "UNKNOWN",
             "error_message": b.error_message,
@@ -127,8 +176,7 @@ def delete_batch(request: Request, batch_id: UUID, db: Session = Depends(get_db)
 def batch_detail(request: Request, batch_id: UUID, db: Session = Depends(get_db)):
     batch = source_batch_repo.get_by_id(db, batch_id)
     if not batch:
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/", status_code=302)
+        return RedirectResponse(url="/workspace/dashboard", status_code=302)
 
     events = processing_event_repo.get_all(db)
     batch_events = [e for e in events if e.batch_id == batch.id]
@@ -217,6 +265,7 @@ def batch_detail(request: Request, batch_id: UUID, db: Session = Depends(get_db)
             "files": files_data,
             "candidates": candidates_data,
             "events": events_data,
+            "workspace_assets_version": _compute_workspace_assets_version(),
         }
     )
 
@@ -238,6 +287,7 @@ def candidate_detail(request: Request, candidate_id: UUID, db: Session = Depends
         context={
             "candidate": candidate,
             "canonical": canonical,
-            "extractions": extracted_texts
+            "extractions": extracted_texts,
+            "workspace_assets_version": _compute_workspace_assets_version(),
         }
     )

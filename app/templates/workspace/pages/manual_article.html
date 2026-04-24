@@ -1,0 +1,96 @@
+<div id="manual-block"></div>
+
+<div class="module-card manual-page-intro">
+    <h2 class="manual-title">Ejecucion manual segura</h2>
+    <p class="manual-desc">Lanza un flujo activo desde esta pantalla sin acciones destructivas. La configuracion avanzada sigue en Flujos.</p>
+</div>
+
+<div class="module-card manual-step-card" id="manual-status-block">
+    <div class="manual-step-header">
+        <span class="manual-step-index">Estado</span>
+        <div>
+            <div class="manual-step-title">Resultado de operaciones</div>
+            <p class="manual-step-desc">Aqui veras confirmaciones y errores de cada accion manual.</p>
+        </div>
+    </div>
+    <div id="manual-result" class="manual-result"></div>
+</div>
+
+<div id="manual-run-block" class="module-card manual-step-card">
+    <div class="manual-step-header">
+        <span class="manual-step-index">1</span>
+        <div>
+            <div class="manual-step-title">Flujo y ejecucion</div>
+            <p class="manual-step-desc">Selecciona el flujo activo y lanza una ejecucion manual.</p>
+        </div>
+    </div>
+    <div class="manual-run-config">
+        <div class="manual-run-field">
+            <div id="manual-mode" class="manual-mode">Modo: cargando...</div>
+        </div>
+        <div class="manual-run-field">
+            <select id="manual-flow-select" class="manual-select"></select>
+        </div>
+    </div>
+    <div class="manual-step-actions">
+        <button id="manual-run-btn" class="btn" onclick="runSelectedFlow(false)">Ejecutar</button>
+        <button id="manual-export-btn" class="btn" onclick="runSelectedFlow(true)">Ejecutar + Exportar</button>
+        <button id="manual-activity-btn" class="btn btn-settings" onclick="openManualActivityFromSelection()">Ver actividad</button>
+    </div>
+</div>
+
+<div id="manual-intake-block" class="module-card manual-step-card">
+    <div class="manual-step-header">
+        <span class="manual-step-index">2</span>
+        <div>
+            <div class="manual-step-title">Entrada de archivos</div>
+            <p class="manual-step-desc">Sube contenido fuente y genera una preview para revisar resultados.</p>
+        </div>
+    </div>
+    <div class="manual-upload-row">
+        <input id="manual-files" class="manual-file-input" type="file" multiple>
+    </div>
+    <div class="manual-step-actions">
+        <button id="manual-upload-btn" class="btn" onclick="uploadManualFiles()">Subir archivos</button>
+        <button id="manual-preview-btn" class="btn btn-settings" onclick="runManualPreview()">Procesar preview</button>
+        <button id="manual-open-preview-btn" class="btn btn-settings" onclick="openExistingManualPreview()">Mostrar preview</button>
+    </div>
+</div>
+
+<div id="manual-review-block" class="module-card manual-step-card">
+    <div class="manual-step-header">
+        <span class="manual-step-index">3</span>
+        <div>
+            <div class="manual-step-title">Revision del borrador</div>
+            <p class="manual-step-desc">Valida la preview: acepta para incluirla en export o descartala.</p>
+        </div>
+    </div>
+    <div class="manual-step-actions">
+        <button id="manual-accept-btn" class="btn" onclick="acceptManualPreview()">Aceptar preview</button>
+        <button id="manual-discard-btn" class="btn btn-settings" onclick="discardManualPreview()">Descartar preview</button>
+    </div>
+    <div class="manual-draft-grid">
+        <div class="manual-draft-box">
+            <div class="manual-draft-title">Archivos pendientes</div>
+            <div id="manual-incoming-list" class="manual-draft-list">-</div>
+        </div>
+        <div class="manual-draft-box">
+            <div class="manual-draft-title">Verificados para exportar</div>
+            <div id="manual-verified-list" class="manual-draft-list">-</div>
+        </div>
+    </div>
+</div>
+
+<div id="manual-export-block" class="module-card manual-step-card">
+    <div class="manual-step-header">
+        <span class="manual-step-index">4</span>
+        <div>
+            <div class="manual-step-title">Exportacion y cierre</div>
+            <p class="manual-step-desc">Genera la exportacion final y resetea el borrador cuando termines.</p>
+        </div>
+    </div>
+    <div class="manual-step-actions">
+        <button id="manual-finalize-btn" class="btn" onclick="finalizeManualExport()">Crear exportacion final</button>
+        <button id="manual-reset-btn" class="btn btn-settings" onclick="resetManualDraft()">Reset borrador</button>
+    </div>
+</div>

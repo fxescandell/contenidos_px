@@ -1,0 +1,130 @@
+<div id="tree-block"></div>
+<div class="module-card tree-page-intro">
+    <h2 class="tree-title">Carga por carpetas (categoria/articulo)</h2>
+    <p class="tree-desc">Sube estructura de carpetas para detectar articulos automaticamente y asignarlos por categoria a flujos activos.</p>
+</div>
+
+<div class="module-card tree-step-card" id="tree-upload-block">
+    <div class="tree-step-header">
+        <span class="tree-step-index">1</span>
+        <div>
+            <div class="tree-step-title">Carga y deteccion</div>
+            <p class="tree-step-desc">Importa carpetas y refresca grupos detectados.</p>
+        </div>
+    </div>
+    <div class="tree-upload-row">
+        <input id="tree-folder-input" class="tree-folder-input" type="file" webkitdirectory directory multiple>
+    </div>
+    <div class="tree-step-actions">
+        <button id="tree-upload-btn" class="btn" onclick="uploadTreeFolders()">Cargar estructura</button>
+        <button id="tree-refresh-btn" class="btn btn-settings" onclick="loadTreeGroups()">Refrescar grupos</button>
+    </div>
+    <div class="tree-stats">
+        <span id="tree-stat-total" class="tree-pill">Total: 0</span>
+        <span id="tree-stat-assigned" class="tree-pill">Asignados: 0</span>
+        <span id="tree-stat-unassigned" class="tree-pill">Sin asignar: 0</span>
+        <span id="tree-stat-errors" class="tree-pill">Errores: 0</span>
+        <span id="tree-stat-preview" class="tree-pill">Preview lista: 0</span>
+        <span id="tree-stat-verified" class="tree-pill">Verificados: 0</span>
+        <span id="tree-stat-exported" class="tree-pill">Exportados: 0</span>
+    </div>
+    <div id="tree-result" class="tree-result"></div>
+</div>
+
+<div class="module-card tree-step-card" id="tree-actions-block">
+    <div class="tree-step-header">
+        <span class="tree-step-index">2</span>
+        <div>
+            <div class="tree-step-title">Listado y filtros operativos</div>
+            <p class="tree-step-desc">Filtra grupos, selecciona por estado y aplica acciones de asignacion/preview/borrado.</p>
+        </div>
+    </div>
+    <div class="tree-actions-row">
+        <select id="tree-flow-select" class="tree-flow-select"></select>
+        <button id="tree-assign-btn" class="btn" onclick="assignSelectedTreeGroups()">Asignar seleccionados</button>
+        <button id="tree-auto-btn" class="btn btn-settings" onclick="autoAssignTreeGroups()">Autoasignar por categoria</button>
+        <button id="tree-preview-btn" class="btn" onclick="previewSelectedTreeGroups()">Generar JSON seleccionados</button>
+        <button id="tree-delete-btn" class="btn btn-settings" onclick="deleteSelectedTreeGroups()">Borrar seleccionados</button>
+    </div>
+    <div class="tree-filter-row">
+        <button class="tree-filter-tab active" data-tree-filter="all" onclick="setTreeFilter('all', this)">Todos</button>
+        <button class="tree-filter-tab" data-tree-filter="UNASSIGNED" onclick="setTreeFilter('UNASSIGNED', this)">Sin asignar</button>
+        <button class="tree-filter-tab" data-tree-filter="ASSIGNED" onclick="setTreeFilter('ASSIGNED', this)">Asignados</button>
+        <button class="tree-filter-tab" data-tree-filter="PREVIEW_READY" onclick="setTreeFilter('PREVIEW_READY', this)">Preview lista</button>
+        <button class="tree-filter-tab" data-tree-filter="VERIFIED" onclick="setTreeFilter('VERIFIED', this)">Verificados</button>
+        <button class="tree-filter-tab" data-tree-filter="EXPORTED" onclick="setTreeFilter('EXPORTED', this)">Exportados</button>
+        <button class="tree-filter-tab" data-tree-filter="ERROR" onclick="setTreeFilter('ERROR', this)">Con error</button>
+        <input id="tree-search-input" class="tree-search-input" type="text" placeholder="Buscar por categoria o articulo..." oninput="setTreeSearch(this.value)">
+        <select id="tree-sort-select" class="tree-sort-select" onchange="setTreeSort(this.value)">
+            <option value="status">Orden: estado operativo</option>
+            <option value="category">Orden: categoria A-Z</option>
+            <option value="article">Orden: articulo A-Z</option>
+            <option value="files_desc">Orden: mas archivos</option>
+        </select>
+        <span class="spacer"></span>
+        <button class="btn btn-settings" style="padding:4px 8px; font-size:11px;" onclick="selectVisibleTreeGroups()">Seleccionar visibles</button>
+        <button class="btn btn-settings" style="padding:4px 8px; font-size:11px;" onclick="selectTreeGroupsByStatus(['VERIFIED'])">Seleccionar verificados</button>
+        <button class="btn btn-settings" style="padding:4px 8px; font-size:11px;" onclick="clearTreeSelection()">Limpiar seleccion</button>
+        <span id="tree-showing-count" class="tree-showing"></span>
+    </div>
+    <div class="tree-table-wrap">
+        <table class="tree-table">
+            <thead>
+                <tr>
+                    <th style="width:34px;"><input type="checkbox" id="tree-select-all" onchange="toggleAllTreeGroups(this)"></th>
+                    <th>Categoria</th>
+                    <th>Articulo</th>
+                    <th>Estado</th>
+                    <th>Archivos</th>
+                    <th>Flow sugerido</th>
+                    <th>Flow asignado</th>
+                    <th>Validacion</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="tree-groups-body">
+                <tr><td colspan="9" style="color:#64748b;">Todavia no hay grupos cargados.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="module-card tree-step-card" id="tree-validation-block">
+    <div class="tree-step-header">
+        <span class="tree-step-index">3</span>
+        <div>
+            <div class="tree-step-title">Verificacion progresiva</div>
+            <p class="tree-step-desc">Marca grupos correctos para incorporarlos al borrador verificado paso a paso.</p>
+        </div>
+    </div>
+    <div class="tree-step-actions">
+        <button id="tree-accept-btn" class="btn btn-settings" onclick="acceptSelectedTreeGroups()">Marcar seleccion como verificada</button>
+        <button class="btn btn-settings" style="padding:4px 8px; font-size:11px;" onclick="selectTreeGroupsByStatus(['PREVIEW_READY'])">Seleccionar preview lista</button>
+    </div>
+    <p class="tree-help">Consejo: valida en lotes pequenos. Cada aceptacion se anade al borrador final acumulado.</p>
+    <div class="tree-validation-grid">
+        <div class="tree-validation-box">
+            <div class="tree-validation-title">Pendientes de validar</div>
+            <div id="tree-preview-ready-list" class="tree-validation-list">-</div>
+        </div>
+        <div class="tree-validation-box">
+            <div class="tree-validation-title">Ya verificados</div>
+            <div id="tree-verified-list" class="tree-validation-list">-</div>
+        </div>
+    </div>
+    <div id="tree-validation-result" class="tree-result"></div>
+</div>
+
+<div class="module-card tree-step-card" id="tree-export-block">
+    <div class="tree-step-header">
+        <span class="tree-step-index">4</span>
+        <div>
+            <div class="tree-step-title">Exportacion final</div>
+            <p class="tree-step-desc">Exporta solo la seleccion verificada cuando hayas terminado la revision.</p>
+        </div>
+    </div>
+    <div class="tree-step-actions">
+        <button id="tree-finalize-btn" class="btn" onclick="finalizeSelectedTreeGroupsExport()">Exportar seleccion verificada</button>
+    </div>
+    <div id="tree-export-result" class="tree-result"></div>
+</div>

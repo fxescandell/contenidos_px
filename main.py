@@ -94,6 +94,9 @@ app.include_router(inbox_router, prefix="/api/v1/inbox")
 # Flows API routes
 app.include_router(flows_router)
 
+# Static assets
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

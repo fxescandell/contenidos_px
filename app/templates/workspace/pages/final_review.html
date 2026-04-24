@@ -1,0 +1,35 @@
+<div id="qa-block"></div>
+<div class="module-card">
+    <h2 class="module-title">Revision final de exportaciones</h2>
+    <p class="module-desc">Carga JSON/CSV final, ejecuta checks de calidad, corrige articulo por articulo y exporta version revisada (_reviewed) antes de WordPress.</p>
+    <div class="manual-controls" style="grid-template-columns: 220px 1fr auto;">
+        <button class="btn" onclick="startQaSession()">Iniciar sesion QA</button>
+        <input id="qa-session-id" class="manual-select" type="text" placeholder="Sesion QA" readonly>
+        <button class="btn btn-settings" onclick="loadQaSessionState()">Recargar sesion</button>
+    </div>
+    <div class="manual-upload-row">
+        <input id="qa-file" class="manual-file-input" type="file" accept=".json,.csv">
+        <button class="btn" onclick="uploadQaExportFile()">Cargar export</button>
+        <button class="btn btn-settings" onclick="runQaChecks()">Ejecutar checks</button>
+        <button class="btn" onclick="exportQaReviewed()">Exportar version revisada</button>
+    </div>
+    <div class="qa-layout" style="margin-top:10px;">
+        <div>
+            <div class="manual-draft-title">Articulos</div>
+            <div id="qa-articles-list" class="qa-list"></div>
+        </div>
+        <div class="qa-editor">
+            <div class="manual-draft-title">Editor de articulo</div>
+            <input id="qa-article-title" class="manual-select" type="text" placeholder="Titulo" style="margin-bottom:8px;">
+            <textarea id="qa-article-summary" placeholder="Resumen" style="margin-bottom:8px;"></textarea>
+            <textarea id="qa-article-body" placeholder="Body HTML / contenido" style="min-height:220px; margin-bottom:8px;"></textarea>
+            <div class="manual-upload-row" style="margin-top:0;">
+                <input id="qa-ai-instructions" class="manual-select" type="text" placeholder="Instrucciones IA para este articulo">
+                <button class="btn btn-settings" onclick="applyQaAiAdjust()">Aplicar IA</button>
+                <button class="btn" onclick="saveQaArticleEdits()">Guardar cambios</button>
+            </div>
+            <div id="qa-issues" class="manual-draft-list" style="margin-top:8px; border:1px solid #e2e8f0; border-radius:8px; padding:8px; background:#f8fafc;"></div>
+        </div>
+    </div>
+    <div id="qa-status" class="module-status"></div>
+</div>

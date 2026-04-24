@@ -190,6 +190,7 @@ class SettingsService:
             {"key": "llm_api_key", "value": "", "type": SettingType.STRING, "cat": "ai", "secret": True, "desc": "Clave API del proveedor LLM activo"},
             {"key": "llm_model", "value": "gpt-4o-mini", "type": SettingType.STRING, "cat": "ai", "desc": "Modelo LLM activo (sincronizado desde conexiones)"},
             {"key": "llm_temperature", "value": "0.3", "type": SettingType.FLOAT, "cat": "ai", "desc": "Temperatura del LLM (0.0 = determinista, 1.0 = creativo)"},
+            {"key": "llm_timeout_seconds", "value": "300", "type": SettingType.INTEGER, "cat": "ai", "desc": "Tiempo maximo en segundos para respuestas LLM antes de timeout"},
             
             # Processing
             {"key": "pipeline_mode", "value": "folder_based", "type": SettingType.STRING, "cat": "processing", "desc": "Modo del pipeline: folder_based (basado en flujos/carpetas) o automatic (clasificacion automatica)"},

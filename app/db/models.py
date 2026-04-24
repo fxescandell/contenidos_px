@@ -241,3 +241,103 @@ class ReprocessingRequest(Base):
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class ManualExportDraft(Base):
+    __tablename__ = "manual_export_drafts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    flow_id: Mapped[UUID] = mapped_column(ForeignKey("flows.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="OPEN", index=True)
+
+    pending_batch_id: Mapped[Optional[str]] = mapped_column(String(64))
+    pending_payload_json: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
+    pending_articles_json: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSON)
+    pending_files_json: Mapped[Optional[List[str]]] = mapped_column(JSON)
+    pending_summary: Mapped[Optional[str]] = mapped_column(Text)
+    pending_created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    final_export_path: Mapped[Optional[str]] = mapped_column(String(1024))
+    final_export_message: Mapped[Optional[str]] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    finalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    items: Mapped[List["ManualExportItem"]] = relationship(
+        back_populates="draft",
+        cascade="all, delete-orphan",
+        order_by="ManualExportItem.sequence",
+    )
+
+
+class ManualExportItem(Base):
+    __tablename__ = "manual_export_items"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    draft_id: Mapped[UUID] = mapped_column(ForeignKey("manual_export_drafts.id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=1)
+    source_batch_id: Mapped[Optional[str]] = mapped_column(String(64))
+    payload_json: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    articles_json: Mapped[List[Dict[str, Any]]] = mapped_column(JSON, default=list)
+    files_json: Mapped[List[str]] = mapped_column(JSON, default=list)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    draft: Mapped["ManualExportDraft"] = relationship(back_populates="items")
+
+
+class ManualTreeSession(Base):
+    __tablename__ = "manual_tree_sessions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    status: Mapped[str] = mapped_column(String(30), default="OPEN", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    groups: Mapped[List["ManualTreeGroup"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ManualTreeGroup.category_name, ManualTreeGroup.article_name",
+    )
+
+
+class ManualTreeGroup(Base):
+    __tablename__ = "manual_tree_groups"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    session_id: Mapped[UUID] = mapped_column(ForeignKey("manual_tree_sessions.id", ondelete="CASCADE"), index=True)
+    group_key: Mapped[str] = mapped_column(String(512), index=True)
+    category_name: Mapped[str] = mapped_column(String(255), index=True)
+    article_name: Mapped[str] = mapped_column(String(255), index=True)
+    files_json: Mapped[List[str]] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(30), default="UNASSIGNED", index=True)
+    validation_errors_json: Mapped[List[str]] = mapped_column(JSON, default=list)
+    assigned_flow_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("flows.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    session: Mapped["ManualTreeSession"] = relationship(back_populates="groups")
+    preview: Mapped[Optional["ManualTreeGroupPreview"]] = relationship(
+        back_populates="group",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+class ManualTreeGroupPreview(Base):
+    __tablename__ = "manual_tree_group_previews"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    group_id: Mapped[UUID] = mapped_column(ForeignKey("manual_tree_groups.id", ondelete="CASCADE"), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(30), default="READY", index=True)
+    source_batch_id: Mapped[Optional[str]] = mapped_column(String(64))
+    payload_json: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
+    articles_json: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSON)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    preview_json: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    group: Mapped["ManualTreeGroup"] = relationship(back_populates="preview")

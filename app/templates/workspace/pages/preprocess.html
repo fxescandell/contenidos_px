@@ -1,0 +1,45 @@
+<div id="preprocess-block"></div>
+<div class="module-card">
+    <h2 class="module-title">Preprocesado de contenido</h2>
+    <p class="module-desc">Prepara articulos cuando faltan documentos fuente: OCR, fusion de texto, markdown estructurado, empaquetado y publicacion en carpeta de entrada del flujo.</p>
+    <div class="manual-controls" style="grid-template-columns: 220px 1fr auto auto;">
+        <button class="btn" onclick="startPreprocessSession()">Iniciar sesion</button>
+        <input id="prep-session-id" class="manual-select" type="text" placeholder="Sesion de preprocesado" readonly>
+        <button class="btn btn-settings" onclick="loadPreprocessSessionState()">Recargar sesion</button>
+        <span id="prep-active-mode" class="manual-mode">Modo: cargando...</span>
+    </div>
+    <div class="manual-upload-row">
+        <select id="prep-flow-select" class="manual-select" style="min-width:260px;"></select>
+        <select id="prep-municipality" class="manual-select" style="min-width:180px;">
+            <option value="">Municipio</option>
+            <option value="BERGUEDA">Bergueda</option>
+            <option value="CERDANYA">Cerdanya</option>
+            <option value="MARESME">Maresme</option>
+            <option value="GENERAL">General</option>
+        </select>
+        <input id="prep-category" class="manual-select" type="text" placeholder="Categoria (ej: AGENDA)">
+        <input id="prep-files" class="manual-file-input" type="file" multiple>
+        <button class="btn" onclick="uploadPreprocessFiles()">Subir fuentes</button>
+        <button class="btn btn-settings" onclick="analyzePreprocessSession()">Analizar OCR/texto</button>
+    </div>
+    <div class="manual-upload-row">
+        <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#475569;">
+            <input id="prep-enable-web" type="checkbox"> Ampliar con contexto web (manual)
+        </label>
+        <input id="prep-web-query" class="manual-select" type="text" placeholder="Consulta web (opcional)">
+        <button class="btn" onclick="generatePreprocessMarkdown()">Generar markdown</button>
+        <button class="btn btn-settings" onclick="packagePreprocessSession()">Empaquetar articulo</button>
+        <button class="btn" onclick="publishPreprocessSession()">Publicar en entrada del flujo</button>
+    </div>
+    <div class="prep-grid" style="margin-top:10px;">
+        <div>
+            <div class="manual-draft-title">Markdown generado</div>
+            <textarea id="prep-markdown" class="prep-textarea" placeholder="Aqui aparecera el markdown generado..."></textarea>
+        </div>
+        <div>
+            <div class="manual-draft-title">Resumen de analisis</div>
+            <div id="prep-analysis" class="manual-draft-list" style="min-height:260px; border:1px solid #e2e8f0; border-radius:8px; padding:8px; background:#f8fafc;"></div>
+        </div>
+    </div>
+    <div id="prep-status" class="module-status"></div>
+</div>

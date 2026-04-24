@@ -46,7 +46,25 @@ def _extract_http_error_message(exc: Exception) -> str:
     return text[:300]
 
 
-def _format_llm_test_error(provider: str, model: str, exc: Exception) -> str:
+def _resolve_provider_base_url(connection: Dict[str, Any], provider: str) -> str:
+    configured = str(connection.get("base_url", "") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+
+    if provider == "ollama":
+        return "http://localhost:11434"
+    if provider == "openai":
+        return "https://api.openai.com/v1"
+    if provider == "anthropic":
+        return "https://api.anthropic.com/v1"
+    if provider == "groq":
+        return "https://api.groq.com/openai/v1"
+    if provider == "mistral":
+        return "https://api.mistral.ai/v1"
+    return ""
+
+
+def _format_llm_test_error(provider: str, model: str, exc: Exception, base_url: str = "") -> str:
     response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
     base_message = _extract_http_error_message(exc)
@@ -70,7 +88,31 @@ def _format_llm_test_error(provider: str, model: str, exc: Exception) -> str:
         if status_code == 400:
             return f"Gemini ha rechazado la solicitud para el modelo '{model_name}'. Revisa que el modelo soporte generateContent. Detalle: {base_message}"
 
+    if provider == "ollama":
+        target = base_url or "http://localhost:11434"
+        if status_code == 403:
+            return (
+                f"Ollama ({model_name}) devolvio HTTP 403 al acceder a {target}. "
+                "Revisa si hay un proxy o firewall bloqueando /api/chat, y confirma que estas apuntando al servicio Ollama correcto. "
+                "En local suele ser http://localhost:11434. En Docker normalmente es http://host.docker.internal:11434. "
+                f"Detalle: {base_message}"
+            )
+        if status_code == 404:
+            return (
+                f"Ollama no encuentra el endpoint o el modelo '{model_name}' en {target}. "
+                "Verifica la URL base y vuelve a cargar modelos desde el panel. "
+                f"Detalle: {base_message}"
+            )
+        if status_code == 400:
+            return (
+                f"Ollama rechazo la solicitud para el modelo '{model_name}' en {target}. "
+                "Comprueba que el modelo este descargado y activo. "
+                f"Detalle: {base_message}"
+            )
+
     if status_code:
+        if base_url:
+            return f"{provider_name} ({model_name}) devolvio HTTP {status_code} en {base_url}. Detalle: {base_message}"
         return f"{provider_name} ({model_name}) devolvio HTTP {status_code}. Detalle: {base_message}"
 
     return base_message
@@ -519,6 +561,7 @@ def settings_ai(request: Request, db: Session = Depends(get_db)):
                 "provider": provider,
                 "api_key": api_key,
                 "model": values.get("llm_model", ""),
+                "base_url": "http://localhost:11434" if provider == "ollama" else "",
                 "temperature": float(values.get("llm_temperature", 0.3) or 0.3),
                 "enabled": values.get("llm_enabled", False),
                 "active": True,
@@ -580,6 +623,14 @@ async def save_ai(request: Request, db: Session = Depends(get_db)):
         dpi_val = 300
     updates.append(SettingItemUpdate(key="ocr_dpi", value=dpi_val, value_type=SettingType.INTEGER, is_secret=False))
     updates.append(SettingItemUpdate(key="ocr_vision_connection_id", value=form_data.get("setting_ocr_vision_connection_id", ""), value_type=SettingType.STRING, is_secret=False))
+
+    timeout_val = form_data.get("setting_llm_timeout_seconds", "300")
+    try:
+        timeout_val = int(timeout_val)
+    except (TypeError, ValueError):
+        timeout_val = 300
+    timeout_val = max(10, min(timeout_val, 1200))
+    updates.append(SettingItemUpdate(key="llm_timeout_seconds", value=timeout_val, value_type=SettingType.INTEGER, is_secret=False))
 
     SettingsService.update_section(db, "ai", updates, user="admin_user")
     return RedirectResponse(url="/settings/ai?success=true", status_code=303)
@@ -740,20 +791,21 @@ async def run_all_tests(request: Request, db: Session = Depends(get_db)):
             provider = active.get("provider", "")
             api_key = active.get("api_key", "")
             model = active.get("model", "")
+            base_url = _resolve_provider_base_url(active, provider)
             if provider == "openai":
-                url = "https://api.openai.com/v1/chat/completions"
+                url = f"{(base_url or 'https://api.openai.com/v1').rstrip('/')}/chat/completions"
                 headers = {"Authorization": f"Bearer {api_key}"}
                 payload = {"model": model, "messages": [{"role": "user", "content": "OK"}], "max_tokens": 3}
             elif provider == "anthropic":
-                url = "https://api.anthropic.com/v1/messages"
+                url = f"{(base_url or 'https://api.anthropic.com/v1').rstrip('/')}/messages"
                 headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
                 payload = {"model": model, "max_tokens": 3, "messages": [{"role": "user", "content": "OK"}]}
             elif provider == "groq":
-                url = "https://api.groq.com/openai/v1/chat/completions"
+                url = f"{(base_url or 'https://api.groq.com/openai/v1').rstrip('/')}/chat/completions"
                 headers = {"Authorization": f"Bearer {api_key}"}
                 payload = {"model": model, "messages": [{"role": "user", "content": "OK"}], "max_tokens": 3}
             elif provider == "mistral":
-                url = "https://api.mistral.ai/v1/chat/completions"
+                url = f"{(base_url or 'https://api.mistral.ai/v1').rstrip('/')}/chat/completions"
                 headers = {"Authorization": f"Bearer {api_key}"}
                 payload = {"model": model, "messages": [{"role": "user", "content": "OK"}], "max_tokens": 3}
             elif provider == "gemini":
@@ -761,16 +813,25 @@ async def run_all_tests(request: Request, db: Session = Depends(get_db)):
                 headers = {}
                 payload = {"contents": [{"parts": [{"text": "OK"}]}], "generationConfig": {"maxOutputTokens": 3}}
             elif provider == "ollama":
-                url = "http://localhost:11434/api/chat"
+                url = f"{(base_url or 'http://localhost:11434').rstrip('/')}/api/chat"
                 headers = {"Content-Type": "application/json"}
                 payload = {"model": model, "messages": [{"role": "user", "content": "OK"}], "stream": False}
             else:
                 raise Exception(f"Proveedor {provider} no soportado en batch test")
             resp = _req.post(url, json=payload, headers=headers, timeout=15)
             resp.raise_for_status()
-            results["llm"] = {"success": True, "message": f"{provider} ({model}) OK"}
+            location = f" ({base_url})" if base_url else ""
+            results["llm"] = {"success": True, "message": f"{provider} ({model}) OK{location}"}
     except Exception as e:
-        results["llm"] = {"success": False, "message": _format_llm_test_error(provider if 'provider' in locals() else '', model if 'model' in locals() else '', e)}
+        results["llm"] = {
+            "success": False,
+            "message": _format_llm_test_error(
+                provider if 'provider' in locals() else '',
+                model if 'model' in locals() else '',
+                e,
+                base_url if 'base_url' in locals() else '',
+            ),
+        }
 
     try:
         client = SmbRemoteInboxClient()
@@ -976,6 +1037,10 @@ def settings_section(request: Request, category: str, db: Session = Depends(get_
 
 @router.post("/{category}")
 async def save_settings_section(request: Request, category: str, db: Session = Depends(get_db)):
+    if category == "reload":
+        SettingsResolver.reload(db)
+        return JSONResponse({"success": True, "message": "Configuración recargada en memoria"})
+
     form_data = await request.form()
     updates = []
     
@@ -1236,24 +1301,25 @@ async def test_llm(request: Request, db: Session = Depends(get_db)):
     provider = conn.get("provider", "openai")
     api_key = conn.get("api_key", "")
     model = conn.get("model", "")
+    base_url = _resolve_provider_base_url(conn, provider)
     if provider != "ollama" and not api_key:
         return {"success": False, "message": f"Clave API no configurada para {provider}."}
     try:
         import requests as _req
         if provider == "openai":
-            url = "https://api.openai.com/v1/chat/completions"
+            url = f"{(base_url or 'https://api.openai.com/v1').rstrip('/')}/chat/completions"
             headers = {"Authorization": f"Bearer {api_key}"}
             payload = {"model": model or "gpt-4o-mini", "messages": [{"role": "user", "content": "Responde OK"}], "max_tokens": 5}
         elif provider == "anthropic":
-            url = "https://api.anthropic.com/v1/messages"
+            url = f"{(base_url or 'https://api.anthropic.com/v1').rstrip('/')}/messages"
             headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
             payload = {"model": model or "claude-3-haiku-20240307", "max_tokens": 5, "messages": [{"role": "user", "content": "Responde OK"}]}
         elif provider == "groq":
-            url = "https://api.groq.com/openai/v1/chat/completions"
+            url = f"{(base_url or 'https://api.groq.com/openai/v1').rstrip('/')}/chat/completions"
             headers = {"Authorization": f"Bearer {api_key}"}
             payload = {"model": model, "messages": [{"role": "user", "content": "Responde OK"}], "max_tokens": 5}
         elif provider == "mistral":
-            url = "https://api.mistral.ai/v1/chat/completions"
+            url = f"{(base_url or 'https://api.mistral.ai/v1').rstrip('/')}/chat/completions"
             headers = {"Authorization": f"Bearer {api_key}"}
             payload = {"model": model, "messages": [{"role": "user", "content": "Responde OK"}], "max_tokens": 5}
         elif provider == "gemini":
@@ -1261,7 +1327,7 @@ async def test_llm(request: Request, db: Session = Depends(get_db)):
             headers = {}
             payload = {"contents": [{"parts": [{"text": "Responde OK"}]}], "generationConfig": {"maxOutputTokens": 5}}
         elif provider == "ollama":
-            url = "http://localhost:11434/api/chat"
+            url = f"{(base_url or 'http://localhost:11434').rstrip('/')}/api/chat"
             headers = {"Content-Type": "application/json"}
             payload = {"model": model, "messages": [{"role": "user", "content": "Responde OK"}], "stream": False}
         elif provider == "azure":
@@ -1270,15 +1336,16 @@ async def test_llm(request: Request, db: Session = Depends(get_db)):
             return {"success": False, "message": f"Proveedor {provider} no soportado."}
         resp = _req.post(url, json=payload, headers=headers, timeout=15)
         resp.raise_for_status()
-        return {"success": True, "message": f"Conexion exitosa: {provider} ({model})"}
+        return {"success": True, "message": f"Conexion exitosa: {provider} ({model}) · {base_url or 'default'}"}
     except Exception as e:
-        return {"success": False, "message": _format_llm_test_error(provider, model, e)}
+        return {"success": False, "message": _format_llm_test_error(provider, model, e, base_url)}
 
 @router.post("/test/fetch-models")
 async def fetch_llm_models(request: Request):
     body = await request.json()
     provider = body.get("provider", "")
     api_key = body.get("api_key", "")
+    base_url = str(body.get("base_url", "") or "").strip()
     models = []
     try:
         import requests as _req
@@ -1337,7 +1404,8 @@ async def fetch_llm_models(request: Request):
                 models.append({"id": mid, "name": mid, "vision": vision})
             models.sort(key=lambda x: x["id"])
         elif provider == "ollama":
-            resp = _req.get("http://localhost:11434/api/tags", timeout=5)
+            resolved_base_url = (base_url or "http://localhost:11434").rstrip("/")
+            resp = _req.get(f"{resolved_base_url}/api/tags", timeout=5)
             resp.raise_for_status()
             for m in resp.json().get("models", []):
                 mid = m.get("name", "")

@@ -3,31 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Revisión: {{ candidate.candidate_key }}</title>
-    <style>
-        body { font-family: -apple-system, sans-serif; background: #f4f4f5; color: #333; margin: 0; padding: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .full-width { grid-column: 1 / -1; }
-        .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h2, h3 { margin-top: 0; color: #2c3e50; }
-        a.back { color: #666; text-decoration: none; display: inline-block; margin-bottom: 20px; grid-column: 1 / -1;}
-        a.back:hover { color: #000; }
-        
-        .alert { padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #f39c12; background-color: #fdfbf5; color: #8a6d3b;}
-        .alert-error { border-left-color: #e74c3c; background-color: #fdf7f7; color: #a94442; }
-        
-        pre { background: #f8f9fa; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 13px; border: 1px solid #eee; white-space: pre-wrap; word-wrap: break-word;}
-        .metadata-grid { display: grid; grid-template-columns: 120px 1fr; gap: 10px; margin-bottom: 15px; font-size: 14px;}
-        .metadata-label { font-weight: 600; color: #666; }
-        
-        .actions { display: flex; gap: 10px; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
-        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 14px; text-decoration: none; display: inline-block; text-align: center; transition: background 0.2s;}
-        .btn-success { background: #28a745; color: white; }
-        .btn-success:hover { background: #218838; }
-        .btn-warning { background: #ffc107; color: #212529; }
-        .btn-warning:hover { background: #e0a800; }
-        .btn-danger { background: #dc3545; color: white; }
-        .btn-danger:hover { background: #c82333; }
-    </style>
+    <link rel="stylesheet" href="/static/css/candidate_detail.css?v={{ workspace_assets_version }}">
 </head>
 <body>
     <a href="/batch/{{ candidate.batch_id }}" class="back">&larr; Volver al Lote</a>

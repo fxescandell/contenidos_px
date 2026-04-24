@@ -111,3 +111,49 @@ def test_get_active_llm_client_allows_ollama_for_ocr_vision_without_api_key(mock
     assert client is not None
     assert client.provider == "ollama"
     assert client.model == "llama3.2-vision"
+
+
+@patch("app.services.ai.client.SettingsResolver.get")
+def test_get_active_llm_client_propagates_connection_base_url(mock_get):
+    connections = [
+        {
+            "id": "ollama-main",
+            "provider": "ollama",
+            "api_key": "",
+            "model": "llama3.2",
+            "base_url": "http://localhost:11434",
+            "enabled": True,
+            "active": True,
+        },
+    ]
+
+    values = {
+        "llm_connections": connections,
+        "llm_enabled": True,
+        "llm_api_key": "",
+        "llm_provider": "ollama",
+        "llm_model": "llama3.2",
+        "llm_temperature": 0.3,
+    }
+    mock_get.side_effect = lambda key, default=None: values.get(key, default)
+
+    client = get_active_llm_client()
+
+    assert client is not None
+    assert client.provider == "ollama"
+    assert client.base_url == "http://localhost:11434"
+
+
+def test_format_llm_test_error_for_ollama_403_mentions_base_url_and_next_steps():
+    error = _DummyHttpError(_DummyResponse(403, {
+        "error": {
+            "message": "Forbidden",
+            "status": "FORBIDDEN",
+        }
+    }))
+
+    message = _format_llm_test_error("ollama", "llama3.2", error, "http://localhost:11434")
+
+    assert "HTTP 403" in message
+    assert "http://localhost:11434" in message
+    assert "Docker" in message

@@ -188,7 +188,12 @@ class FlowService:
             shutil.rmtree(local_temp, ignore_errors=True)
             return "", str(e)
 
-    def run_flow(self, flow: Flow) -> Dict[str, Any]:
+    def run_flow(
+        self,
+        flow: Flow,
+        source_info_override: Optional[Dict[str, Any]] = None,
+        skip_move_processed: bool = False,
+    ) -> Dict[str, Any]:
         db = SessionLocal()
         batch_id = None
         source_info = None
@@ -196,7 +201,7 @@ class FlowService:
         local_temp_dir = None
 
         try:
-            source_info = self.resolve_source_info(flow)
+            source_info = source_info_override or self.resolve_source_info(flow)
 
             if source_info["mode"] == "smb":
                 remote_files, err = self._list_remote_files(source_info["smb_source_unc"])
@@ -540,8 +545,9 @@ class FlowService:
                 self.working_cleanup_service.cleanup_batch(batch)
                 event_logger.log(db, EventLevel.INFO, "BATCH_FINISHED", "FLOW", "Procesado completado correctamente", batch_id=batch.id)
 
-            self._move_processed_files(source_info, downloaded_files)
-            event_logger.log(db, EventLevel.INFO, "PROCESSED_MOVE_COMPLETED", "FLOW", "Archivos movidos a processed", batch_id=batch.id)
+            if not skip_move_processed:
+                self._move_processed_files(source_info, downloaded_files)
+                event_logger.log(db, EventLevel.INFO, "PROCESSED_MOVE_COMPLETED", "FLOW", "Archivos movidos a processed", batch_id=batch.id)
 
             return {
                 "success": True,

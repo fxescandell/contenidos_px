@@ -1,13 +1,14 @@
 import os
+import shutil
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Body
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.db.repositories.flow_repos import flow_repo
-from app.db.models import ProcessingEvent
+from app.db.models import ProcessingEvent, SourceBatch
 from app.db.repositories.all_repos import source_batch_repo
 from app.schemas.flows import FlowCreate, FlowUpdate, FlowResponse, FlowRunRequest
 from app.config.settings import settings
@@ -16,10 +17,17 @@ from app.services.pipeline.events import event_logger
 from app.services.path_filters import is_ignored_source_folder
 from app.services.export.flow_export import FlowExporter
 from app.services.settings.service import SettingsResolver
+from app.services.manual_flow import ManualFlowService
+from app.services.manual_tree import ManualTreeService
+from app.services.workspace.preprocess_service import preprocess_workspace_service
+from app.services.workspace.final_review_service import final_review_workspace_service
 from app.core.settings_enums import SettingType
 from app.core.enums import EventLevel
+from app.core.states import BatchStatus
 
 router = APIRouter(prefix="/api/v1/flows", tags=["flows"])
+manual_flow_service = ManualFlowService()
+manual_tree_service = ManualTreeService()
 
 MUNICIPALITIES = ["BERGUEDA", "CERDANYA", "MARESME"]
 CATEGORIES = ["AGENDA", "NOTICIES", "ESPORTS", "TURISME_ACTIU", "NENS_I_JOVES", "CULTURA", "GASTRONOMIA", "CONSELLS", "ENTREVISTES"]
@@ -61,6 +69,72 @@ def _datetime_to_timestamp(value: Optional[datetime]) -> float:
     if value.tzinfo is None:
         return value.replace(tzinfo=datetime.now().astimezone().tzinfo).timestamp()
     return value.timestamp()
+
+
+def _safe_cleanup_children(
+    root_path: str,
+    protected_paths: List[str],
+    dry_run: bool = False,
+    include_children: Optional[List[str]] = None,
+    target_full_paths: Optional[List[str]] = None,
+) -> dict:
+    root = os.path.abspath(root_path or "")
+    if not root or not os.path.isdir(root):
+        return {"root": root_path, "planned": 0, "removed": 0, "skipped": 0, "errors": [], "items": []}
+
+    protected = [os.path.abspath(path) for path in protected_paths if path]
+    target_paths = {os.path.abspath(path) for path in (target_full_paths or []) if path}
+    has_target_filter = bool(target_paths)
+    allowed_names = {item for item in (include_children or []) if item}
+    only_allowed = bool(allowed_names)
+    planned = 0
+    removed = 0
+    skipped = 0
+    errors: List[str] = []
+    items: List[str] = []
+
+    for entry in os.listdir(root):
+        if only_allowed and entry not in allowed_names:
+            skipped += 1
+            continue
+
+        full = os.path.abspath(os.path.join(root, entry))
+        if not full.startswith(root + os.sep):
+            skipped += 1
+            continue
+
+        if has_target_filter and full not in target_paths:
+            skipped += 1
+            continue
+
+        if any(p == full or p.startswith(full + os.sep) for p in protected):
+            skipped += 1
+            continue
+
+        planned += 1
+        if len(items) < 80:
+            items.append(full)
+
+        if dry_run:
+            continue
+
+        try:
+            if os.path.isdir(full):
+                shutil.rmtree(full, ignore_errors=False)
+            else:
+                os.remove(full)
+            removed += 1
+        except Exception as exc:
+            errors.append(f"{full}: {exc}")
+
+    return {
+        "root": root,
+        "planned": planned,
+        "removed": removed,
+        "skipped": skipped,
+        "errors": errors,
+        "items": items,
+    }
 
 @router.get("", response_model=List[FlowResponse])
 def list_flows(db: Session = Depends(get_db)):
@@ -172,6 +246,408 @@ def browse_folders(mode: str = Query("smb"), db: Session = Depends(get_db)):
 def create_flow(flow_in: FlowCreate, db: Session = Depends(get_db)):
     return flow_repo.create(db, obj_in=flow_in.model_dump())
 
+
+@router.get("/manual/inbox/groups")
+def get_manual_tree_groups(db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    return manual_tree_service.get_groups_state(db)
+
+
+@router.get("/manual/inbox/ai-health")
+def check_manual_inbox_ai_health(db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    return manual_tree_service.check_ai_connection()
+
+
+@router.post("/workspace/preprocess/sessions")
+def create_preprocess_session(db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    state = preprocess_workspace_service.create_session()
+    return {"success": True, "session": state}
+
+
+@router.get("/workspace/preprocess/sessions/{session_id}")
+def get_preprocess_session(session_id: str, db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    try:
+        state = preprocess_workspace_service.get_state(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"success": True, "session": state}
+
+
+@router.post("/workspace/preprocess/sessions/{session_id}/upload")
+async def upload_preprocess_files(
+    session_id: str,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    SettingsResolver.reload(db)
+    if not files:
+        raise HTTPException(status_code=400, detail="No se han recibido archivos")
+    try:
+        result = preprocess_workspace_service.upload_files(session_id, files)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return result
+
+
+@router.post("/workspace/preprocess/sessions/{session_id}/analyze")
+def analyze_preprocess_session(session_id: str, db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    try:
+        return preprocess_workspace_service.analyze(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/workspace/preprocess/sessions/{session_id}/generate-md")
+def generate_preprocess_markdown(session_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    municipality = str(payload.get("municipality", "") or "")
+    category = str(payload.get("category", "") or "")
+    flow_id = str(payload.get("flow_id", "") or "")
+    enable_web = bool(payload.get("enable_web_enrichment", False))
+    web_query = str(payload.get("web_query", "") or "")
+    try:
+        return preprocess_workspace_service.generate_markdown(
+            session_id=session_id,
+            municipality=municipality,
+            category=category,
+            flow_id=flow_id,
+            enable_web_enrichment=enable_web,
+            web_query=web_query,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/workspace/preprocess/sessions/{session_id}/package")
+def package_preprocess_session(session_id: str, payload: Optional[dict] = Body(None), db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    payload = payload or {}
+    folder_name = str(payload.get("article_folder_name", "") or "")
+    try:
+        return preprocess_workspace_service.package_article(session_id, article_folder_name=folder_name)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/workspace/preprocess/sessions/{session_id}/publish")
+def publish_preprocess_session(session_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    flow_id_raw = payload.get("flow_id")
+    if not flow_id_raw:
+        raise HTTPException(status_code=400, detail="Debes indicar flow_id")
+
+    try:
+        flow_id = UUID(str(flow_id_raw))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"flow_id invalido: {exc}")
+
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+
+    try:
+        return preprocess_workspace_service.publish_to_flow_input(session_id, flow)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/workspace/final-review/sessions")
+def create_final_review_session(db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    state = final_review_workspace_service.create_session()
+    return {"success": True, "session": state}
+
+
+@router.get("/workspace/final-review/sessions/{session_id}")
+def get_final_review_session(session_id: str, db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    try:
+        state = final_review_workspace_service.get_state(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"success": True, "session": state}
+
+
+@router.post("/workspace/final-review/sessions/{session_id}/load-export")
+async def load_final_review_export(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    try:
+        return final_review_workspace_service.load_export_file(session_id, file)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/workspace/final-review/sessions/{session_id}/run-checks")
+def run_final_review_checks(session_id: str, db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    try:
+        return final_review_workspace_service.run_checks(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/workspace/final-review/sessions/{session_id}/articles")
+def list_final_review_articles(session_id: str, db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    try:
+        items = final_review_workspace_service.list_articles(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": True, "articles": items}
+
+
+@router.put("/workspace/final-review/sessions/{session_id}/articles/{article_id}")
+def update_final_review_article(session_id: str, article_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    try:
+        return final_review_workspace_service.update_article(session_id, article_id, payload)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/workspace/final-review/sessions/{session_id}/articles/{article_id}/ai-adjust")
+def ai_adjust_final_review_article(session_id: str, article_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    instructions = str(payload.get("instructions", "") or "")
+    try:
+        return final_review_workspace_service.ai_adjust_article(session_id, article_id, instructions)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/workspace/final-review/sessions/{session_id}/export-reviewed")
+def export_final_reviewed(session_id: str, db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    try:
+        return final_review_workspace_service.export_reviewed(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/manual/maintenance/cleanup")
+def cleanup_manual_temp_and_working(payload: Optional[dict] = Body(None), db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    payload = payload or {}
+
+    mode = str(payload.get("mode", "soft") or "soft").strip().lower()
+    dry_run = bool(payload.get("dry_run", False))
+    retry_targets_raw = payload.get("retry_targets") if isinstance(payload.get("retry_targets"), dict) else {}
+    retry_working_targets = [str(path) for path in (retry_targets_raw.get("working") or []) if path]
+    retry_temp_targets = [str(path) for path in (retry_targets_raw.get("temp") or []) if path]
+    if mode not in {"soft", "full"}:
+        raise HTTPException(status_code=400, detail="Modo de limpieza invalido. Usa 'soft' o 'full'.")
+
+    active_statuses = {
+        BatchStatus.DETECTED,
+        BatchStatus.COPYING,
+        BatchStatus.COPIED,
+        BatchStatus.SCANNED,
+        BatchStatus.GROUPED,
+        BatchStatus.PROCESSING,
+    }
+    active_batches = (
+        db.query(SourceBatch)
+        .filter(SourceBatch.status.in_(list(active_statuses)))
+        .all()
+    )
+    if active_batches and not dry_run:
+        return {
+            "success": False,
+            "message": f"Hay {len(active_batches)} lote(s) activos. Espera a que terminen antes de limpiar temporales.",
+        }
+
+    working_root = SettingsResolver.get("working_folder_path") or "/tmp/editorial_working"
+    temp_root = SettingsResolver.get("temp_folder_path") or "/tmp/editorial_temp"
+
+    working_in_use = [
+        str(getattr(batch, "working_path", "") or "")
+        for batch in db.query(SourceBatch).all()
+        if getattr(batch, "working_path", None)
+    ]
+
+    if mode == "soft":
+        working_result = {
+            "root": os.path.abspath(working_root),
+            "planned": 0,
+            "removed": 0,
+            "skipped": 0,
+            "errors": [],
+            "items": [],
+            "note": "No se limpia working en modo soft",
+        }
+        temp_result = _safe_cleanup_children(
+            temp_root,
+            protected_paths=working_in_use,
+            dry_run=dry_run,
+            include_children=["manual_flow_drafts", "manual_tree_uploads"],
+            target_full_paths=retry_temp_targets,
+        )
+    else:
+        working_result = _safe_cleanup_children(
+            working_root,
+            protected_paths=[],
+            dry_run=dry_run,
+            target_full_paths=retry_working_targets,
+        )
+        temp_result = _safe_cleanup_children(
+            temp_root,
+            protected_paths=working_in_use,
+            dry_run=dry_run,
+            target_full_paths=retry_temp_targets,
+        )
+
+    total_planned = int(working_result.get("planned", 0)) + int(temp_result.get("planned", 0))
+    total_removed = int(working_result.get("removed", 0)) + int(temp_result.get("removed", 0))
+    total_errors = len(working_result.get("errors", [])) + len(temp_result.get("errors", []))
+
+    return {
+        "success": total_errors == 0,
+        "mode": mode,
+        "dry_run": dry_run,
+        "message": (
+            "Previsualizacion de limpieza lista" if dry_run else ("Limpieza completada" if total_errors == 0 else "Limpieza completada con incidencias")
+        ),
+        "planned": total_planned,
+        "removed": total_removed,
+        "active_batches": len(active_batches),
+        "details": {
+            "working": working_result,
+            "temp": temp_result,
+        },
+    }
+
+
+@router.post("/manual/inbox/upload-tree")
+async def upload_manual_tree(
+    files: List[UploadFile] = File(...),
+    relative_paths: List[str] = Form(...),
+    db: Session = Depends(get_db),
+):
+    SettingsResolver.reload(db)
+    result = await manual_tree_service.upload_tree(db, files, relative_paths)
+    return result
+
+
+@router.post("/manual/inbox/groups/assign")
+def assign_manual_tree_groups(payload: dict = Body(...), db: Session = Depends(get_db)):
+    try:
+        group_ids = [UUID(item) for item in payload.get("group_ids", [])]
+        flow_id = UUID(payload.get("flow_id", ""))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Payload invalido: {exc}")
+
+    SettingsResolver.reload(db)
+    return manual_tree_service.assign_groups(db, group_ids, flow_id)
+
+
+@router.post("/manual/inbox/groups/auto-assign")
+def auto_assign_manual_tree_groups(
+    only_unassigned: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    SettingsResolver.reload(db)
+    return manual_tree_service.auto_assign_groups(db, only_unassigned=only_unassigned)
+
+
+@router.post("/manual/inbox/groups/preview")
+def preview_manual_tree_groups(payload: dict = Body(...), db: Session = Depends(get_db)):
+    try:
+        group_ids = [UUID(item) for item in payload.get("group_ids", [])]
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Payload invalido: {exc}")
+
+    if not group_ids:
+        raise HTTPException(status_code=400, detail="No se han recibido grupos para previsualizar")
+
+    SettingsResolver.reload(db)
+    return manual_tree_service.preview_groups(db, group_ids)
+
+
+@router.post("/manual/inbox/groups/accept")
+def accept_manual_tree_groups(payload: dict = Body(...), db: Session = Depends(get_db)):
+    try:
+        group_ids = [UUID(item) for item in payload.get("group_ids", [])]
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Payload invalido: {exc}")
+
+    if not group_ids:
+        raise HTTPException(status_code=400, detail="No se han recibido grupos para aceptar")
+
+    SettingsResolver.reload(db)
+    return manual_tree_service.accept_groups(db, group_ids)
+
+
+@router.post("/manual/inbox/groups/finalize-export")
+def finalize_manual_tree_groups_export(payload: dict = Body(...), db: Session = Depends(get_db)):
+    try:
+        group_ids = [UUID(item) for item in payload.get("group_ids", [])]
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Payload invalido: {exc}")
+
+    if not group_ids:
+        raise HTTPException(status_code=400, detail="No se han recibido grupos para exportar")
+
+    SettingsResolver.reload(db)
+    return manual_tree_service.finalize_selected_exports(db, group_ids)
+
+
+@router.get("/manual/inbox/groups/{group_id}/preview")
+def get_manual_tree_group_preview(group_id: UUID, db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    return manual_tree_service.get_group_preview(db, group_id)
+
+
+@router.put("/manual/inbox/groups/{group_id}/preview-json")
+def update_manual_tree_group_preview_json(group_id: UUID, payload: dict = Body(...), db: Session = Depends(get_db)):
+    preview_json = str(payload.get("preview_json", "") or "")
+    SettingsResolver.reload(db)
+    return manual_tree_service.update_group_preview_json(db, group_id, preview_json)
+
+
+@router.post("/manual/inbox/groups/{group_id}/recompile")
+def recompile_manual_tree_group_preview(group_id: UUID, db: Session = Depends(get_db)):
+    SettingsResolver.reload(db)
+    return manual_tree_service.recompile_group_preview(db, group_id)
+
+
+@router.post("/manual/inbox/groups/{group_id}/ai-adjust")
+def ai_adjust_manual_tree_group_preview(group_id: UUID, payload: dict = Body(...), db: Session = Depends(get_db)):
+    instructions = str(payload.get("instructions", "") or "")
+    SettingsResolver.reload(db)
+    return manual_tree_service.apply_ai_changes_to_preview(db, group_id, instructions)
+
+
+@router.delete("/manual/inbox/groups")
+def delete_manual_tree_groups(payload: dict = Body(...), db: Session = Depends(get_db)):
+    try:
+        group_ids = [UUID(item) for item in payload.get("group_ids", [])]
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Payload invalido: {exc}")
+
+    if not group_ids:
+        raise HTTPException(status_code=400, detail="No se han recibido grupos para borrar")
+
+    SettingsResolver.reload(db)
+    return manual_tree_service.delete_groups(db, group_ids)
+
+
+@router.post("/manual/inbox/groups/delete")
+def delete_manual_tree_groups_post(payload: dict = Body(...), db: Session = Depends(get_db)):
+    try:
+        group_ids = [UUID(item) for item in payload.get("group_ids", [])]
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Payload invalido: {exc}")
+
+    if not group_ids:
+        raise HTTPException(status_code=400, detail="No se han recibido grupos para borrar")
+
+    SettingsResolver.reload(db)
+    return manual_tree_service.delete_groups(db, group_ids)
+
 @router.get("/{flow_id}", response_model=FlowResponse)
 def get_flow(flow_id: UUID, db: Session = Depends(get_db)):
     flow = flow_repo.get_by_id(db, flow_id)
@@ -221,6 +697,109 @@ def run_flow(flow_id: UUID, db: Session = Depends(get_db)):
         })
 
     return result
+
+
+@router.get("/{flow_id}/manual/state")
+def get_manual_state(flow_id: UUID, db: Session = Depends(get_db)):
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+    SettingsResolver.reload(db)
+    state = manual_flow_service.get_draft_state(db, flow)
+    return {"success": True, **state}
+
+
+@router.post("/{flow_id}/manual/upload")
+async def upload_manual_files(flow_id: UUID, files: List[UploadFile] = File(...), db: Session = Depends(get_db)):
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+    if not files:
+        raise HTTPException(status_code=400, detail="No se han recibido archivos")
+
+    SettingsResolver.reload(db)
+    result = await manual_flow_service.upload_files(db, flow, files)
+    return {
+        "success": True,
+        "message": f"{len(result.get('saved', []))} archivo(s) cargado(s)",
+        **result,
+    }
+
+
+@router.post("/{flow_id}/manual/preview")
+def run_manual_preview(flow_id: UUID, db: Session = Depends(get_db)):
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+    if not flow.enabled:
+        raise HTTPException(status_code=400, detail="Flow desactivado")
+
+    SettingsResolver.reload(db)
+    result = manual_flow_service.run_preview(db, flow)
+    return result
+
+
+@router.get("/{flow_id}/manual/preview-current")
+def get_manual_preview_current(flow_id: UUID, db: Session = Depends(get_db)):
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+
+    SettingsResolver.reload(db)
+    return manual_flow_service.get_pending_preview(db, flow)
+
+
+@router.post("/{flow_id}/manual/accept")
+def accept_manual_preview(flow_id: UUID, db: Session = Depends(get_db)):
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+
+    SettingsResolver.reload(db)
+    result = manual_flow_service.accept_pending_preview(db, flow)
+    return result
+
+
+@router.post("/{flow_id}/manual/discard")
+def discard_manual_preview(flow_id: UUID, db: Session = Depends(get_db)):
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+
+    SettingsResolver.reload(db)
+    result = manual_flow_service.discard_pending_preview(db, flow)
+    return result
+
+
+@router.post("/{flow_id}/manual/finalize-export")
+def finalize_manual_export(flow_id: UUID, db: Session = Depends(get_db)):
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+
+    SettingsResolver.reload(db)
+    result = manual_flow_service.finalize_export(db, flow)
+
+    flow_repo.update(
+        db,
+        db_obj=flow,
+        obj_in={
+            "last_run_at": datetime.now(),
+            "last_run_status": "EXPORTED" if result.get("success") else "ERROR",
+            "last_run_summary": str(result.get("message", ""))[:255],
+        },
+    )
+    return result
+
+
+@router.post("/{flow_id}/manual/reset")
+def reset_manual_draft(flow_id: UUID, db: Session = Depends(get_db)):
+    flow = flow_repo.get_by_id(db, flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Flow no encontrado")
+
+    SettingsResolver.reload(db)
+    return manual_flow_service.reset_draft(db, flow)
 
 
 @router.get("/batches/{batch_id}/events")

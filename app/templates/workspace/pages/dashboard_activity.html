@@ -1,0 +1,101 @@
+<div id="stats-block"></div>
+<div class="stats-row">
+    <div class="stat-card total">
+        <div class="stat-number">{{ stats.total }}</div>
+        <div class="stat-label">Total Lotes</div>
+    </div>
+    <div class="stat-card active">
+        <div class="stat-number">{{ stats.active }}</div>
+        <div class="stat-label">En Proceso</div>
+    </div>
+    <div class="stat-card finished">
+        <div class="stat-number">{{ stats.finished }}</div>
+        <div class="stat-label">Finalizados</div>
+    </div>
+    <div class="stat-card failed">
+        <div class="stat-number">{{ stats.failed }}</div>
+        <div class="stat-label">Con Errores</div>
+    </div>
+    <div class="stat-card review">
+        <div class="stat-number">{{ stats.review }}</div>
+        <div class="stat-label">Pendientes Revision</div>
+    </div>
+</div>
+
+{% if current_page == 'activity' %}
+<div id="maintenance-block"></div>
+<div class="module-card">
+    <h2 class="module-title">Utilidades de mantenimiento</h2>
+    <p class="module-desc">Limpieza de carpetas temporales y working del flujo manual.</p>
+    <div class="manual-upload-row" style="margin-top:0;">
+        <select id="manual-cleanup-mode" class="manual-select" style="max-width:190px;">
+            <option value="soft">Limpieza suave</option>
+            <option value="full">Limpieza completa</option>
+        </select>
+        <button id="manual-cleanup-preview-btn" class="btn btn-settings" onclick="previewManualCleanup()">Previsualizar limpieza</button>
+        <button id="manual-cleanup-btn" class="btn btn-settings" onclick="cleanupManualTempAndWorking()">Ejecutar limpieza</button>
+    </div>
+    <div id="manual-result" class="manual-result"></div>
+    <div id="cleanup-preview-box" class="cleanup-preview-box">
+        <div id="cleanup-preview-title" class="cleanup-preview-title">Previsualizacion de limpieza</div>
+        <div class="cleanup-preview-grid">
+            <div class="cleanup-preview-col">
+                <div id="cleanup-working-subtitle" class="cleanup-preview-subtitle">Working</div>
+                <div id="cleanup-working-list" class="cleanup-preview-list">-</div>
+            </div>
+            <div class="cleanup-preview-col">
+                <div id="cleanup-temp-subtitle" class="cleanup-preview-subtitle">Temp</div>
+                <div id="cleanup-temp-list" class="cleanup-preview-list">-</div>
+            </div>
+        </div>
+        <div id="cleanup-errors" class="cleanup-errors" style="display:none;">
+            <div id="cleanup-errors-title" class="cleanup-errors-title">Incidencias de borrado</div>
+            <div id="cleanup-errors-list" class="cleanup-errors-list">-</div>
+            <div class="btn-group" style="margin-top:6px;">
+                <button id="cleanup-retry-errors-btn" type="button" class="btn btn-settings btn-sm" onclick="retryCleanupErrors()">Reintentar solo errores</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div id="filters-block"></div>
+<div class="filters-bar">
+    <div class="filter-tabs">
+        <button class="filter-tab active" data-filter="all" onclick="setFilter('all', this)">Todos <span class="count">{{ stats.total }}</span></button>
+        <button class="filter-tab" data-filter="active" onclick="setFilter('active', this)">Activos <span class="count">{{ stats.active }}</span></button>
+        <button class="filter-tab" data-filter="finished" onclick="setFilter('finished', this)">Finalizados <span class="count">{{ stats.finished }}</span></button>
+        <button class="filter-tab" data-filter="failed" onclick="setFilter('failed', this)">Errores <span class="count">{{ stats.failed }}</span></button>
+        <button class="filter-tab" data-filter="review" onclick="setFilter('review', this)">Revision <span class="count">{{ stats.review }}</span></button>
+    </div>
+    <select class="filter-select" id="filter-municipality" onchange="applyFilters()">
+        <option value="">Todos los municipios</option>
+        {% for m in municipalities %}
+        <option value="{{ m }}">{{ m }}</option>
+        {% endfor %}
+    </select>
+    <input type="text" class="search-input" id="search-input" placeholder="Buscar por nombre..." oninput="applyFilters()">
+    <div class="spacer"></div>
+    <span style="font-size:12px; color:#aaa;" id="showing-count"></span>
+</div>
+
+<div class="table-wrapper">
+    <table>
+        <thead>
+            <tr>
+                <th>Nombre</th>
+                <th>Municipio</th>
+                <th>Estado</th>
+                <th>Archivos / Candidatos</th>
+                <th>Hace</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="batches-tbody">
+        </tbody>
+    </table>
+    <div id="empty-state" class="empty-state" style="display:none;">
+        <div class="icon">&#128203;</div>
+        <p>No hay lotes que coincidan con los filtros.</p>
+    </div>
+</div>

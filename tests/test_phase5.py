@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from main import app
 from app.db.session import get_db
 from app.db.base import Base
-from app.services.settings.service import SettingsResolver
+from app.services.settings.service import SettingsResolver, SettingsService
 
 # Override DB to ensure clean tests
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test_settings.db"
@@ -20,18 +20,20 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
-
 client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def setup_db():
+    app.dependency_overrides[get_db] = override_get_db
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     # Reload settings resolver against new DB
     with TestingSessionLocal() as db:
+        SettingsService.initialize_defaults(db)
         SettingsResolver.reload(db)
     yield
     Base.metadata.drop_all(bind=engine)
+    app.dependency_overrides.pop(get_db, None)
 
 def test_settings_dashboard_loads():
     response = client.get("/settings/")

@@ -18,8 +18,14 @@ class LlmClient:
         self.base_url = base_url or ""
         self.temperature = temperature or float(SettingsResolver.get("llm_temperature", "0.3") or 0.3)
 
-    def chat(self, prompt: str, system: str = None, images: Optional[List[Dict]] = None,
-           max_tokens: int = 4000) -> str:
+    def chat(
+        self,
+        prompt: str,
+        system: str = None,
+        images: Optional[List[Dict]] = None,
+        max_tokens: int = 4000,
+        timeout_seconds: Optional[float] = None,
+    ) -> str:
         if self.provider.lower() != "ollama" and not self.api_key:
             raise ValueError("API key del LLM no configurada. Configurala en la seccion AI de configuracion.")
 
@@ -33,23 +39,23 @@ class LlmClient:
         messages.append({"role": "user", "content": content})
 
         try:
-            response = self._call_api(messages, max_tokens)
+            response = self._call_api(messages, max_tokens, timeout_seconds=timeout_seconds)
             return response.strip()
         except Exception as e:
             logger.error(f"Error LLM ({self.provider}): {e}")
             raise
 
-    def _call_api(self, messages: List[Dict], max_tokens: int) -> str:
+    def _call_api(self, messages: List[Dict], max_tokens: int, timeout_seconds: Optional[float] = None) -> str:
         if "openai" in self.provider.lower() or "anthropic" in self.provider.lower() or "groq" in self.provider.lower():
-            return self._call_openai_compatible(messages, max_tokens)
+            return self._call_openai_compatible(messages, max_tokens, timeout_seconds=timeout_seconds)
         if "gemini" in self.provider.lower():
-            return self._call_gemini(messages, max_tokens)
+            return self._call_gemini(messages, max_tokens, timeout_seconds=timeout_seconds)
         if "ollama" in self.provider.lower():
-            return self._call_ollama(messages, max_tokens)
+            return self._call_ollama(messages, max_tokens, timeout_seconds=timeout_seconds)
 
         raise ValueError(f"Proveedor LLM no soportado: {self.provider}")
 
-    def _call_openai_compatible(self, messages: List[Dict], max_tokens: int) -> str:
+    def _call_openai_compatible(self, messages: List[Dict], max_tokens: int, timeout_seconds: Optional[float] = None) -> str:
         import httpx
 
         base_url = self.base_url
@@ -70,7 +76,7 @@ class LlmClient:
             payload = {"model": self.model, "max_tokens": max_tokens, "messages": messages,
                      "temperature": self.temperature}
 
-        resp = httpx.post(url, json=payload, headers=headers, timeout=60)
+        resp = httpx.post(url, json=payload, headers=headers, timeout=(timeout_seconds or 60))
         resp.raise_for_status()
         data = resp.json()
 
@@ -82,7 +88,7 @@ class LlmClient:
             return choices[0].get("message", {}).get("content", "")
         return ""
 
-    def _call_gemini(self, messages: List[Dict], max_tokens: int) -> str:
+    def _call_gemini(self, messages: List[Dict], max_tokens: int, timeout_seconds: Optional[float] = None) -> str:
         import httpx
 
         model = self.model or "gemini-2.0-flash"
@@ -101,7 +107,7 @@ class LlmClient:
                 "parts": [{"text": system_instruction}]
             }
 
-        resp = httpx.post(url, json=payload, headers={"content-type": "application/json"}, timeout=60)
+        resp = httpx.post(url, json=payload, headers={"content-type": "application/json"}, timeout=(timeout_seconds or 60))
         resp.raise_for_status()
         data = resp.json()
 
@@ -158,11 +164,14 @@ class LlmClient:
         mime_type, _ = mimetypes.guess_type(parsed.path)
         return {"file_data": {"mime_type": mime_type or "image/jpeg", "file_uri": url}}
 
-    def _call_ollama(self, messages: List[Dict], max_tokens: int) -> str:
+    def _call_ollama(self, messages: List[Dict], max_tokens: int, timeout_seconds: Optional[float] = None) -> str:
         import httpx
 
         base_url = self.base_url or "http://localhost:11434"
         url = f"{base_url.rstrip('/')}/api/chat"
+        resolved_timeout = timeout_seconds
+        if resolved_timeout is None:
+            resolved_timeout = float(SettingsResolver.get("llm_timeout_seconds", 300) or 300)
         payload = {
             "model": self.model,
             "messages": self._ollama_messages_from_chat(messages),
@@ -173,7 +182,7 @@ class LlmClient:
             },
         }
 
-        resp = httpx.post(url, json=payload, headers={"content-type": "application/json"}, timeout=120)
+        resp = httpx.post(url, json=payload, headers={"content-type": "application/json"}, timeout=resolved_timeout)
         resp.raise_for_status()
         data = resp.json()
         return data.get("message", {}).get("content", "")
@@ -238,6 +247,7 @@ def _build_client_from_connection(connection: Dict[str, Any]) -> LlmClient:
         provider=connection.get("provider"),
         api_key=connection.get("api_key"),
         model=connection.get("model"),
+        base_url=connection.get("base_url"),
         temperature=connection.get("temperature"),
     )
 
