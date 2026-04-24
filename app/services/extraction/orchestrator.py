@@ -174,10 +174,15 @@ class ImageOcrExtractor(BaseExtractor):
         try:
             import base64
             from app.services.ai.client import get_active_llm_client
+            from app.services.settings.service import SettingsResolver
+
+            selected_connection_id = str(SettingsResolver.get("ocr_vision_connection_id") or "").strip()
+            if not selected_connection_id:
+                return self._mock_extract_with_error(file_path, file_id, "ocr_vision_connection_id no configurado")
 
             client = get_active_llm_client(use_ocr_vision=True)
             if not client:
-                return self._mock_extract(file_path, file_id)
+                return self._mock_extract_with_error(file_path, file_id, "conexion de OCR vision no disponible o no valida")
 
             with open(file_path, "rb") as f:
                 img_b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -199,7 +204,7 @@ class ImageOcrExtractor(BaseExtractor):
             )
         except ModuleNotFoundError as e:
             logger.warning("Dependencia OCR/vision no disponible: %s", e)
-            return self._mock_extract(file_path, file_id)
+            return self._mock_extract_with_error(file_path, file_id, "dependencia OCR vision no disponible")
         except Exception as e:
             return self._mock_extract_with_error(file_path, file_id, str(e))
 
@@ -224,34 +229,59 @@ class ImageOcrExtractor(BaseExtractor):
             )
         except ModuleNotFoundError as e:
             logger.warning("Tesseract no disponible: %s", e)
-            return self._mock_extract(file_path, file_id)
+            return self._mock_extract_with_error(file_path, file_id, "pytesseract no instalado en venv")
         except Exception as e:
             return self._mock_extract_with_error(file_path, file_id, str(e))
 
     def _paddleocr_extract(self, file_path: str, file_id: str) -> ExtractionResult:
         try:
             from paddleocr import PaddleOCR
-            ocr = PaddleOCR(use_angle_cls=True, lang='es')
-            result = ocr.ocr(file_path, cls=True)
+            ocr = PaddleOCR(use_textline_orientation=True, lang='es')
+            result = ocr.ocr(file_path)
             lines = []
+            scores = []
             if result and result[0]:
-                for line in result[0]:
-                    if line and len(line) >= 2:
-                        lines.append(line[1][0])
+                first = result[0]
+                if isinstance(first, dict):
+                    rec_texts = first.get("rec_texts") or []
+                    rec_scores = first.get("rec_scores") or []
+                    for item in rec_texts:
+                        text_item = str(item or "").strip()
+                        if text_item:
+                            lines.append(text_item)
+                    for score in rec_scores:
+                        try:
+                            scores.append(float(score))
+                        except Exception:
+                            continue
+                elif isinstance(first, list):
+                    for line in first:
+                        if line and len(line) >= 2 and isinstance(line[1], (list, tuple)) and line[1]:
+                            text_item = str(line[1][0] or "").strip()
+                            if text_item:
+                                lines.append(text_item)
+                            if len(line[1]) > 1:
+                                try:
+                                    scores.append(float(line[1][1]))
+                                except Exception:
+                                    continue
             if not lines:
                 return self._empty_ocr_result(file_path, file_id, "Imagen sin texto reconocible")
             text = "\n".join(lines)
             cleaned_info = self.cleaner.clean(text)
+            confidence = 0.75 + cleaned_info["adjustment"]
+            if scores:
+                confidence = max(0.0, min(1.0, sum(scores) / len(scores)))
             return ExtractionResult(
                 source_file_id=self._uuid(file_id),
                 method=ExtractionMethod.OCR_IMAGE,
-                confidence=0.75 + cleaned_info["adjustment"],
+                confidence=confidence,
                 raw_text=text,
                 cleaned_text=cleaned_info["cleaned_text"]
             )
         except ModuleNotFoundError as e:
             logger.warning("PaddleOCR no disponible: %s", e)
-            return self._mock_extract(file_path, file_id)
+            return self._mock_extract_with_error(file_path, file_id, "paddleocr no instalado en venv")
         except Exception as e:
             return self._mock_extract_with_error(file_path, file_id, str(e))
 

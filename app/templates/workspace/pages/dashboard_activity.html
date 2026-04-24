@@ -23,6 +23,39 @@
 </div>
 
 {% if current_page == 'activity' %}
+<div id="global-activity-block"></div>
+<div class="module-card">
+    <h2 class="module-title">Actividad global del workspace</h2>
+    <p class="module-desc">Timeline unificado de flujos, manual, preprocesado, revision final y acciones del sistema.</p>
+    <div class="activity-feed-controls">
+        <select id="global-activity-module" class="manual-select" onchange="loadGlobalActivityFeed()">
+            <option value="all">Todos los modulos</option>
+            <option value="flows">Flujos</option>
+            <option value="manual">Manual</option>
+            <option value="preprocess">Preprocesado</option>
+            <option value="final-review">Revision final</option>
+            <option value="system">Sistema</option>
+        </select>
+        <select id="global-activity-level" class="manual-select" onchange="loadGlobalActivityFeed()">
+            <option value="all">Todos los niveles</option>
+            <option value="INFO">INFO</option>
+            <option value="WARNING">WARNING</option>
+            <option value="ERROR">ERROR</option>
+            <option value="CRITICAL">CRITICAL</option>
+        </select>
+        <input id="global-activity-search" class="search-input" type="text" placeholder="Buscar evento, etapa o mensaje..." oninput="scheduleGlobalActivityFeedReload()">
+        <select id="global-activity-export-format" class="manual-select">
+            <option value="json">Exportar JSON</option>
+            <option value="csv">Exportar CSV</option>
+        </select>
+        <button class="btn btn-settings" onclick="loadGlobalActivityFeed()">Actualizar</button>
+        <button class="btn btn-settings" onclick="exportGlobalActivityFeed()">Exportar actividad</button>
+        <button class="btn" onclick="clearGlobalActivityFeed()">Borrar actividad</button>
+    </div>
+    <div id="global-activity-summary" class="activity-feed-summary">Sin datos de actividad todavia.</div>
+    <div id="global-activity-list" class="activity-feed-list"></div>
+</div>
+
 <div id="maintenance-block"></div>
 <div class="module-card">
     <h2 class="module-title">Utilidades de mantenimiento</h2>

@@ -68,12 +68,12 @@
     </style>
 </head>
 <body>
-    <a href="/" style="color: #666; text-decoration: none; margin-bottom: 20px; display: inline-block;">&larr; Volver al Panel Principal</a>
+    {% include 'settings/_workspace_topnav.html' %}
     <div class="container">
         {% include 'settings/_sidebar.html' %}
         <div class="content">
             <h2>
-                7. Entrada
+                8. Entrada
                 {% if active_mode == 'smb' %}(SMB)<span class="mode-badge smb">SMB activo</span>
                 {% else %}(Local)<span class="mode-badge local">Local activo</span>
                 {% endif %}

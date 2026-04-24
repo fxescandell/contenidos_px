@@ -1,9 +1,13 @@
 import os
 import shutil
-from typing import List, Optional
+import json
+import csv
+import io
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Body
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -37,6 +41,7 @@ FLOW_PREVIEW_EXTENSIONS = ('.pdf', '.docx', '.md', '.markdown', '.txt', '.jpg', 
 def _serialize_processing_event(event: ProcessingEvent) -> dict:
     return {
         "id": str(event.id),
+        "module": _activity_module_from_stage(event.stage),
         "level": event.level.value if event.level else "INFO",
         "event_type": event.event_type,
         "stage": event.stage,
@@ -69,6 +74,99 @@ def _datetime_to_timestamp(value: Optional[datetime]) -> float:
     if value.tzinfo is None:
         return value.replace(tzinfo=datetime.now().astimezone().tzinfo).timestamp()
     return value.timestamp()
+
+
+def _activity_module_from_stage(stage: Optional[str]) -> str:
+    normalized = str(stage or "").strip().upper()
+    if normalized.startswith("WORKSPACE_PREPROCESS"):
+        return "preprocess"
+    if normalized.startswith("WORKSPACE_FINAL_REVIEW"):
+        return "final-review"
+    if normalized.startswith("WORKSPACE_MANUAL"):
+        return "manual"
+    if normalized.startswith("WORKSPACE_SYSTEM"):
+        return "system"
+    return "flows"
+
+
+def _log_workspace_event(
+    db: Session,
+    level: EventLevel,
+    event_type: str,
+    stage: str,
+    message: str,
+    payload: Optional[Dict[str, Any]] = None,
+) -> None:
+    event_logger.log(
+        db,
+        level,
+        event_type,
+        stage,
+        message,
+        payload=payload or {},
+    )
+
+
+def _collect_workspace_activity_rows(
+    db: Session,
+    module: str,
+    level: str,
+    q: str,
+    limit: int,
+) -> tuple[List[ProcessingEvent], Dict[str, int], int]:
+    module_filter = (module or "all").strip().lower()
+    level_filter = (level or "all").strip().upper()
+    query_text = (q or "").strip().lower()
+
+    base_fetch_limit = min(max(limit * 6, 400), 2500)
+    rows = (
+        db.query(ProcessingEvent)
+        .order_by(ProcessingEvent.created_at.desc())
+        .limit(base_fetch_limit)
+        .all()
+    )
+
+    filtered: List[ProcessingEvent] = []
+    module_counts: Dict[str, int] = {
+        "flows": 0,
+        "manual": 0,
+        "preprocess": 0,
+        "final-review": 0,
+        "system": 0,
+    }
+
+    for row in rows:
+        row_level = (row.level.value if row.level else "INFO").upper()
+        if level_filter != "ALL" and row_level != level_filter:
+            continue
+
+        payload_text = ""
+        if row.payload_json:
+            try:
+                payload_text = json.dumps(row.payload_json, ensure_ascii=False)
+            except Exception:
+                payload_text = str(row.payload_json)
+
+        if query_text:
+            haystack = " ".join(
+                [
+                    str(row.event_type or ""),
+                    str(row.stage or ""),
+                    str(row.message or ""),
+                    payload_text,
+                ]
+            ).lower()
+            if query_text not in haystack:
+                continue
+
+        module_name = _activity_module_from_stage(row.stage)
+        module_counts[module_name] = module_counts.get(module_name, 0) + 1
+
+        if module_filter != "all" and module_name != module_filter:
+            continue
+        filtered.append(row)
+
+    return filtered[:limit], module_counts, len(filtered)
 
 
 def _safe_cleanup_children(
@@ -156,12 +254,127 @@ def switch_mode(mode: str = Query(...), db: Session = Depends(get_db)):
     from app.schemas.settings import SettingItemUpdate
     SettingsService.update_section(db, "general", [SettingItemUpdate(key="active_source_mode", value=mode, value_type=SettingType.STRING)])
     SettingsResolver.reload(db)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO,
+        "WORKSPACE_MODE_SWITCHED",
+        "WORKSPACE_SYSTEM",
+        f"Modo activo cambiado a {mode}",
+        payload={"mode": mode},
+    )
     return {"success": True, "mode": mode}
 
 @router.get("/active-mode")
 def get_active_mode(db: Session = Depends(get_db)):
     SettingsResolver.reload(db)
     return {"mode": SettingsResolver.get("active_source_mode", "smb") or "smb"}
+
+
+@router.get("/workspace/activity-feed")
+def workspace_activity_feed(
+    module: str = Query("all"),
+    level: str = Query("all"),
+    q: str = Query(""),
+    limit: int = Query(200, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    events_rows, module_counts, filtered_total = _collect_workspace_activity_rows(
+        db,
+        module=module,
+        level=level,
+        q=q,
+        limit=limit,
+    )
+    events = [_serialize_processing_event(item) for item in events_rows]
+    return {
+        "success": True,
+        "events": events,
+        "module_counts": module_counts,
+        "total": filtered_total,
+    }
+
+
+@router.post("/workspace/activity-feed/clear")
+def clear_workspace_activity_feed(db: Session = Depends(get_db)):
+    removed = db.query(ProcessingEvent).delete(synchronize_session=False)
+    db.commit()
+    return {
+        "success": True,
+        "removed": int(removed or 0),
+        "message": f"Actividad eliminada ({int(removed or 0)} evento(s)).",
+    }
+
+
+@router.get("/workspace/activity-feed/export")
+def export_workspace_activity_feed(
+    module: str = Query("all"),
+    level: str = Query("all"),
+    q: str = Query(""),
+    limit: int = Query(500, ge=1, le=2000),
+    format: str = Query("json"),
+    db: Session = Depends(get_db),
+):
+    export_format = str(format or "json").strip().lower()
+    if export_format not in {"json", "csv"}:
+        raise HTTPException(status_code=400, detail="Formato invalido. Usa json o csv.")
+
+    SettingsResolver.reload(db)
+
+    events_rows, module_counts, filtered_total = _collect_workspace_activity_rows(
+        db,
+        module=module,
+        level=level,
+        q=q,
+        limit=limit,
+    )
+    events = [_serialize_processing_event(item) for item in events_rows]
+
+    export_root = os.path.join(
+        SettingsResolver.get("temp_folder_path") or "/tmp/editorial_temp",
+        "workspace_activity_exports",
+    )
+    os.makedirs(export_root, exist_ok=True)
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    suffix = "json" if export_format == "json" else "csv"
+    output_path = os.path.join(export_root, f"activity_{stamp}.{suffix}")
+
+    if export_format == "json":
+        payload = {
+            "exported_at": datetime.now().isoformat(),
+            "filters": {"module": module, "level": level, "q": q, "limit": limit},
+            "module_counts": module_counts,
+            "total": filtered_total,
+            "events": events,
+        }
+        with open(output_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        media_type = "application/json"
+    else:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["created_at", "module", "level", "event_type", "stage", "message", "batch_id", "candidate_id", "payload_json"])
+        for event in events:
+            writer.writerow([
+                event.get("created_at") or "",
+                event.get("module") or "",
+                event.get("level") or "",
+                event.get("event_type") or "",
+                event.get("stage") or "",
+                event.get("message") or "",
+                event.get("batch_id") or "",
+                event.get("candidate_id") or "",
+                json.dumps(event.get("payload") or {}, ensure_ascii=False),
+            ])
+        with open(output_path, "w", encoding="utf-8", newline="") as handle:
+            handle.write(buffer.getvalue())
+        media_type = "text/csv"
+
+    return FileResponse(
+        output_path,
+        media_type=media_type,
+        filename=os.path.basename(output_path),
+    )
 
 @router.get("/hotfolder-info")
 def get_hotfolder_info(db: Session = Depends(get_db)):
@@ -263,6 +476,14 @@ def check_manual_inbox_ai_health(db: Session = Depends(get_db)):
 def create_preprocess_session(db: Session = Depends(get_db)):
     SettingsResolver.reload(db)
     state = preprocess_workspace_service.create_session()
+    _log_workspace_event(
+        db,
+        EventLevel.INFO,
+        "PREPROCESS_SESSION_CREATED",
+        "WORKSPACE_PREPROCESS",
+        "Sesion de preprocesado creada",
+        payload={"session_id": state.get("id")},
+    )
     return {"success": True, "session": state}
 
 
@@ -287,7 +508,23 @@ async def upload_preprocess_files(
         raise HTTPException(status_code=400, detail="No se han recibido archivos")
     try:
         result = preprocess_workspace_service.upload_files(session_id, files)
+        _log_workspace_event(
+            db,
+            EventLevel.INFO,
+            "PREPROCESS_FILES_UPLOADED",
+            "WORKSPACE_PREPROCESS",
+            f"Archivos subidos a preprocesado ({len(result.get('saved', []))})",
+            payload={"session_id": session_id, "saved": len(result.get("saved", [])), "rejected": len(result.get("rejected", []))},
+        )
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "PREPROCESS_UPLOAD_FAILED",
+            "WORKSPACE_PREPROCESS",
+            str(exc),
+            payload={"session_id": session_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
     return result
 
@@ -296,8 +533,29 @@ async def upload_preprocess_files(
 def analyze_preprocess_session(session_id: str, db: Session = Depends(get_db)):
     SettingsResolver.reload(db)
     try:
-        return preprocess_workspace_service.analyze(session_id)
+        result = preprocess_workspace_service.analyze(session_id)
+        _log_workspace_event(
+            db,
+            EventLevel.INFO if result.get("success", True) else EventLevel.WARNING,
+            "PREPROCESS_ANALYZED",
+            "WORKSPACE_PREPROCESS",
+            result.get("message") or "Analisis de preprocesado completado",
+            payload={
+                "session_id": session_id,
+                "files_processed": ((result.get("analysis") or {}).get("files_processed") or 0),
+                "warnings": len(((result.get("analysis") or {}).get("warnings") or [])),
+            },
+        )
+        return result
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "PREPROCESS_ANALYZE_FAILED",
+            "WORKSPACE_PREPROCESS",
+            str(exc),
+            payload={"session_id": session_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -310,7 +568,7 @@ def generate_preprocess_markdown(session_id: str, payload: dict = Body(...), db:
     enable_web = bool(payload.get("enable_web_enrichment", False))
     web_query = str(payload.get("web_query", "") or "")
     try:
-        return preprocess_workspace_service.generate_markdown(
+        result = preprocess_workspace_service.generate_markdown(
             session_id=session_id,
             municipality=municipality,
             category=category,
@@ -318,7 +576,24 @@ def generate_preprocess_markdown(session_id: str, payload: dict = Body(...), db:
             enable_web_enrichment=enable_web,
             web_query=web_query,
         )
+        _log_workspace_event(
+            db,
+            EventLevel.INFO if result.get("success", True) else EventLevel.WARNING,
+            "PREPROCESS_MARKDOWN_GENERATED",
+            "WORKSPACE_PREPROCESS",
+            result.get("message") or "Markdown generado",
+            payload={"session_id": session_id, "flow_id": flow_id, "municipality": municipality, "category": category},
+        )
+        return result
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "PREPROCESS_MARKDOWN_FAILED",
+            "WORKSPACE_PREPROCESS",
+            str(exc),
+            payload={"session_id": session_id, "flow_id": flow_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -328,8 +603,25 @@ def package_preprocess_session(session_id: str, payload: Optional[dict] = Body(N
     payload = payload or {}
     folder_name = str(payload.get("article_folder_name", "") or "")
     try:
-        return preprocess_workspace_service.package_article(session_id, article_folder_name=folder_name)
+        result = preprocess_workspace_service.package_article(session_id, article_folder_name=folder_name)
+        _log_workspace_event(
+            db,
+            EventLevel.INFO if result.get("success", True) else EventLevel.WARNING,
+            "PREPROCESS_PACKAGED",
+            "WORKSPACE_PREPROCESS",
+            result.get("message") or "Paquete generado",
+            payload={"session_id": session_id, "package_path": result.get("package_path")},
+        )
+        return result
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "PREPROCESS_PACKAGE_FAILED",
+            "WORKSPACE_PREPROCESS",
+            str(exc),
+            payload={"session_id": session_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -350,8 +642,30 @@ def publish_preprocess_session(session_id: str, payload: dict = Body(...), db: S
         raise HTTPException(status_code=404, detail="Flow no encontrado")
 
     try:
-        return preprocess_workspace_service.publish_to_flow_input(session_id, flow)
+        result = preprocess_workspace_service.publish_to_flow_input(session_id, flow)
+        level = EventLevel.INFO if result.get("success") else EventLevel.WARNING
+        _log_workspace_event(
+            db,
+            level,
+            "PREPROCESS_PUBLISHED",
+            "WORKSPACE_PREPROCESS",
+            result.get("message") or "Publicacion de preprocesado completada",
+            payload={
+                "session_id": session_id,
+                "flow_id": str(flow.id),
+                "published_input_path": result.get("published_input_path"),
+            },
+        )
+        return result
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "PREPROCESS_PUBLISH_FAILED",
+            "WORKSPACE_PREPROCESS",
+            str(exc),
+            payload={"session_id": session_id, "flow_id": str(flow.id)},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -359,6 +673,14 @@ def publish_preprocess_session(session_id: str, payload: dict = Body(...), db: S
 def create_final_review_session(db: Session = Depends(get_db)):
     SettingsResolver.reload(db)
     state = final_review_workspace_service.create_session()
+    _log_workspace_event(
+        db,
+        EventLevel.INFO,
+        "FINAL_REVIEW_SESSION_CREATED",
+        "WORKSPACE_FINAL_REVIEW",
+        "Sesion de revision final creada",
+        payload={"session_id": state.get("id")},
+    )
     return {"success": True, "session": state}
 
 
@@ -376,8 +698,25 @@ def get_final_review_session(session_id: str, db: Session = Depends(get_db)):
 async def load_final_review_export(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     SettingsResolver.reload(db)
     try:
-        return final_review_workspace_service.load_export_file(session_id, file)
+        result = final_review_workspace_service.load_export_file(session_id, file)
+        _log_workspace_event(
+            db,
+            EventLevel.INFO if result.get("success", True) else EventLevel.WARNING,
+            "FINAL_REVIEW_EXPORT_LOADED",
+            "WORKSPACE_FINAL_REVIEW",
+            result.get("message") or "Export cargado para QA",
+            payload={"session_id": session_id, "articles_count": result.get("articles_count", 0)},
+        )
+        return result
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "FINAL_REVIEW_LOAD_FAILED",
+            "WORKSPACE_FINAL_REVIEW",
+            str(exc),
+            payload={"session_id": session_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -385,8 +724,27 @@ async def load_final_review_export(session_id: str, file: UploadFile = File(...)
 def run_final_review_checks(session_id: str, db: Session = Depends(get_db)):
     SettingsResolver.reload(db)
     try:
-        return final_review_workspace_service.run_checks(session_id)
+        result = final_review_workspace_service.run_checks(session_id)
+        checks = result.get("checks") or {}
+        level = EventLevel.WARNING if (not result.get("success", True) or (checks.get("issues_total") or 0) > 0) else EventLevel.INFO
+        _log_workspace_event(
+            db,
+            level,
+            "FINAL_REVIEW_CHECKS_RUN",
+            "WORKSPACE_FINAL_REVIEW",
+            "Checks de revision final ejecutados",
+            payload={"session_id": session_id, **checks},
+        )
+        return result
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "FINAL_REVIEW_CHECKS_FAILED",
+            "WORKSPACE_FINAL_REVIEW",
+            str(exc),
+            payload={"session_id": session_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -404,8 +762,25 @@ def list_final_review_articles(session_id: str, db: Session = Depends(get_db)):
 def update_final_review_article(session_id: str, article_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
     SettingsResolver.reload(db)
     try:
-        return final_review_workspace_service.update_article(session_id, article_id, payload)
+        result = final_review_workspace_service.update_article(session_id, article_id, payload)
+        _log_workspace_event(
+            db,
+            EventLevel.INFO if result.get("success", True) else EventLevel.WARNING,
+            "FINAL_REVIEW_ARTICLE_UPDATED",
+            "WORKSPACE_FINAL_REVIEW",
+            result.get("message") or "Articulo QA actualizado",
+            payload={"session_id": session_id, "article_id": article_id},
+        )
+        return result
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "FINAL_REVIEW_ARTICLE_UPDATE_FAILED",
+            "WORKSPACE_FINAL_REVIEW",
+            str(exc),
+            payload={"session_id": session_id, "article_id": article_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -414,8 +789,26 @@ def ai_adjust_final_review_article(session_id: str, article_id: str, payload: di
     SettingsResolver.reload(db)
     instructions = str(payload.get("instructions", "") or "")
     try:
-        return final_review_workspace_service.ai_adjust_article(session_id, article_id, instructions)
+        result = final_review_workspace_service.ai_adjust_article(session_id, article_id, instructions)
+        level = EventLevel.INFO if result.get("success") else EventLevel.WARNING
+        _log_workspace_event(
+            db,
+            level,
+            "FINAL_REVIEW_AI_ADJUST",
+            "WORKSPACE_FINAL_REVIEW",
+            result.get("message") or "Ajuste IA en QA",
+            payload={"session_id": session_id, "article_id": article_id},
+        )
+        return result
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "FINAL_REVIEW_AI_ADJUST_FAILED",
+            "WORKSPACE_FINAL_REVIEW",
+            str(exc),
+            payload={"session_id": session_id, "article_id": article_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -423,8 +816,26 @@ def ai_adjust_final_review_article(session_id: str, article_id: str, payload: di
 def export_final_reviewed(session_id: str, db: Session = Depends(get_db)):
     SettingsResolver.reload(db)
     try:
-        return final_review_workspace_service.export_reviewed(session_id)
+        result = final_review_workspace_service.export_reviewed(session_id)
+        level = EventLevel.INFO if result.get("success") else EventLevel.WARNING
+        _log_workspace_event(
+            db,
+            level,
+            "FINAL_REVIEW_EXPORTED",
+            "WORKSPACE_FINAL_REVIEW",
+            result.get("message") or "Export revisado generado",
+            payload={"session_id": session_id, "json_path": result.get("json_path"), "csv_path": result.get("csv_path")},
+        )
+        return result
     except Exception as exc:
+        _log_workspace_event(
+            db,
+            EventLevel.ERROR,
+            "FINAL_REVIEW_EXPORT_FAILED",
+            "WORKSPACE_FINAL_REVIEW",
+            str(exc),
+            payload={"session_id": session_id},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -455,10 +866,19 @@ def cleanup_manual_temp_and_working(payload: Optional[dict] = Body(None), db: Se
         .all()
     )
     if active_batches and not dry_run:
-        return {
+        result = {
             "success": False,
             "message": f"Hay {len(active_batches)} lote(s) activos. Espera a que terminen antes de limpiar temporales.",
         }
+        _log_workspace_event(
+            db,
+            EventLevel.WARNING,
+            "MANUAL_CLEANUP_BLOCKED",
+            "WORKSPACE_SYSTEM",
+            result["message"],
+            payload={"mode": mode, "dry_run": dry_run, "active_batches": len(active_batches)},
+        )
+        return result
 
     working_root = SettingsResolver.get("working_folder_path") or "/tmp/editorial_working"
     temp_root = SettingsResolver.get("temp_folder_path") or "/tmp/editorial_temp"
@@ -504,7 +924,7 @@ def cleanup_manual_temp_and_working(payload: Optional[dict] = Body(None), db: Se
     total_removed = int(working_result.get("removed", 0)) + int(temp_result.get("removed", 0))
     total_errors = len(working_result.get("errors", [])) + len(temp_result.get("errors", []))
 
-    return {
+    result = {
         "success": total_errors == 0,
         "mode": mode,
         "dry_run": dry_run,
@@ -519,6 +939,21 @@ def cleanup_manual_temp_and_working(payload: Optional[dict] = Body(None), db: Se
             "temp": temp_result,
         },
     }
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result["success"] else EventLevel.WARNING,
+        "MANUAL_CLEANUP_EXECUTED",
+        "WORKSPACE_SYSTEM",
+        result["message"],
+        payload={
+            "mode": mode,
+            "dry_run": dry_run,
+            "planned": total_planned,
+            "removed": total_removed,
+            "errors": total_errors,
+        },
+    )
+    return result
 
 
 @router.post("/manual/inbox/upload-tree")
@@ -529,6 +964,20 @@ async def upload_manual_tree(
 ):
     SettingsResolver.reload(db)
     result = await manual_tree_service.upload_tree(db, files, relative_paths)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.WARNING,
+        "MANUAL_TREE_UPLOADED",
+        "WORKSPACE_MANUAL_TREE",
+        result.get("message") or "Carga de arbol manual completada",
+        payload={
+            "session_id": result.get("session_id"),
+            "saved": result.get("saved", 0),
+            "rejected": result.get("rejected", 0),
+            "invalid_structure": result.get("invalid_structure", 0),
+            "groups_count": result.get("groups_count", 0),
+        },
+    )
     return result
 
 
@@ -541,7 +990,16 @@ def assign_manual_tree_groups(payload: dict = Body(...), db: Session = Depends(g
         raise HTTPException(status_code=400, detail=f"Payload invalido: {exc}")
 
     SettingsResolver.reload(db)
-    return manual_tree_service.assign_groups(db, group_ids, flow_id)
+    result = manual_tree_service.assign_groups(db, group_ids, flow_id)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.WARNING,
+        "MANUAL_TREE_ASSIGNED",
+        "WORKSPACE_MANUAL_TREE",
+        result.get("message") or "Asignacion manual de grupos",
+        payload={"group_ids": [str(item) for item in group_ids], "flow_id": str(flow_id)},
+    )
+    return result
 
 
 @router.post("/manual/inbox/groups/auto-assign")
@@ -550,7 +1008,16 @@ def auto_assign_manual_tree_groups(
     db: Session = Depends(get_db),
 ):
     SettingsResolver.reload(db)
-    return manual_tree_service.auto_assign_groups(db, only_unassigned=only_unassigned)
+    result = manual_tree_service.auto_assign_groups(db, only_unassigned=only_unassigned)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.WARNING,
+        "MANUAL_TREE_AUTO_ASSIGNED",
+        "WORKSPACE_MANUAL_TREE",
+        result.get("message") or "Autoasignacion de grupos",
+        payload={"only_unassigned": only_unassigned, "assigned": result.get("assigned", 0), "unresolved": result.get("unresolved", 0)},
+    )
+    return result
 
 
 @router.post("/manual/inbox/groups/preview")
@@ -564,7 +1031,16 @@ def preview_manual_tree_groups(payload: dict = Body(...), db: Session = Depends(
         raise HTTPException(status_code=400, detail="No se han recibido grupos para previsualizar")
 
     SettingsResolver.reload(db)
-    return manual_tree_service.preview_groups(db, group_ids)
+    result = manual_tree_service.preview_groups(db, group_ids)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.WARNING,
+        "MANUAL_TREE_PREVIEW_GENERATED",
+        "WORKSPACE_MANUAL_TREE",
+        result.get("message") or "Preview de grupos generado",
+        payload={"group_ids": [str(item) for item in group_ids]},
+    )
+    return result
 
 
 @router.post("/manual/inbox/groups/accept")
@@ -578,7 +1054,16 @@ def accept_manual_tree_groups(payload: dict = Body(...), db: Session = Depends(g
         raise HTTPException(status_code=400, detail="No se han recibido grupos para aceptar")
 
     SettingsResolver.reload(db)
-    return manual_tree_service.accept_groups(db, group_ids)
+    result = manual_tree_service.accept_groups(db, group_ids)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.WARNING,
+        "MANUAL_TREE_GROUPS_ACCEPTED",
+        "WORKSPACE_MANUAL_TREE",
+        result.get("message") or "Grupos aceptados en borrador verificado",
+        payload={"group_ids": [str(item) for item in group_ids], "accepted": result.get("accepted", 0)},
+    )
+    return result
 
 
 @router.post("/manual/inbox/groups/finalize-export")
@@ -592,7 +1077,17 @@ def finalize_manual_tree_groups_export(payload: dict = Body(...), db: Session = 
         raise HTTPException(status_code=400, detail="No se han recibido grupos para exportar")
 
     SettingsResolver.reload(db)
-    return manual_tree_service.finalize_selected_exports(db, group_ids)
+    result = manual_tree_service.finalize_selected_exports(db, group_ids)
+    failed = len([item for item in (result.get("exports") or []) if not item.get("success")])
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if failed == 0 else EventLevel.WARNING,
+        "MANUAL_TREE_FINAL_EXPORT",
+        "WORKSPACE_MANUAL_TREE",
+        result.get("message") or "Export final manual por grupos completado",
+        payload={"group_ids": [str(item) for item in group_ids], "failed": failed},
+    )
+    return result
 
 
 @router.get("/manual/inbox/groups/{group_id}/preview")
@@ -682,6 +1177,14 @@ def run_flow(flow_id: UUID, db: Session = Depends(get_db)):
     SettingsResolver.reload(db)
     flow_service = FlowService(settings)
     result = flow_service.run_flow(flow)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.ERROR,
+        "FLOW_RUN_TRIGGERED",
+        "WORKSPACE_MANUAL",
+        result.get("message") or "Ejecucion de flujo solicitada",
+        payload={"flow_id": str(flow.id), "batch_id": result.get("batch_id")},
+    )
 
     if result.get("success"):
         flow_repo.update(db, db_obj=flow, obj_in={
@@ -719,6 +1222,14 @@ async def upload_manual_files(flow_id: UUID, files: List[UploadFile] = File(...)
 
     SettingsResolver.reload(db)
     result = await manual_flow_service.upload_files(db, flow, files)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO,
+        "MANUAL_FILES_UPLOADED",
+        "WORKSPACE_MANUAL",
+        f"Archivos manuales cargados ({len(result.get('saved', []))})",
+        payload={"flow_id": str(flow.id), "draft_id": result.get("draft_id"), "saved": len(result.get("saved", [])), "rejected": len(result.get("rejected", []))},
+    )
     return {
         "success": True,
         "message": f"{len(result.get('saved', []))} archivo(s) cargado(s)",
@@ -736,6 +1247,14 @@ def run_manual_preview(flow_id: UUID, db: Session = Depends(get_db)):
 
     SettingsResolver.reload(db)
     result = manual_flow_service.run_preview(db, flow)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.WARNING,
+        "MANUAL_PREVIEW_RUN",
+        "WORKSPACE_MANUAL",
+        result.get("message") or "Preview manual ejecutado",
+        payload={"flow_id": str(flow.id), "draft_id": result.get("draft_id"), "batch_id": result.get("batch_id")},
+    )
     return result
 
 
@@ -757,6 +1276,14 @@ def accept_manual_preview(flow_id: UUID, db: Session = Depends(get_db)):
 
     SettingsResolver.reload(db)
     result = manual_flow_service.accept_pending_preview(db, flow)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.WARNING,
+        "MANUAL_PREVIEW_ACCEPTED",
+        "WORKSPACE_MANUAL",
+        result.get("message") or "Preview manual aceptado",
+        payload={"flow_id": str(flow.id), "sequence": result.get("sequence")},
+    )
     return result
 
 
@@ -768,6 +1295,14 @@ def discard_manual_preview(flow_id: UUID, db: Session = Depends(get_db)):
 
     SettingsResolver.reload(db)
     result = manual_flow_service.discard_pending_preview(db, flow)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.WARNING,
+        "MANUAL_PREVIEW_DISCARDED",
+        "WORKSPACE_MANUAL",
+        result.get("message") or "Preview manual descartado",
+        payload={"flow_id": str(flow.id)},
+    )
     return result
 
 
@@ -779,6 +1314,14 @@ def finalize_manual_export(flow_id: UUID, db: Session = Depends(get_db)):
 
     SettingsResolver.reload(db)
     result = manual_flow_service.finalize_export(db, flow)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.ERROR,
+        "MANUAL_FINAL_EXPORT",
+        "WORKSPACE_MANUAL",
+        result.get("message") or "Exportacion manual finalizada",
+        payload={"flow_id": str(flow.id), "draft_id": result.get("draft_id"), "count": result.get("count")},
+    )
 
     flow_repo.update(
         db,
@@ -799,7 +1342,16 @@ def reset_manual_draft(flow_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Flow no encontrado")
 
     SettingsResolver.reload(db)
-    return manual_flow_service.reset_draft(db, flow)
+    result = manual_flow_service.reset_draft(db, flow)
+    _log_workspace_event(
+        db,
+        EventLevel.INFO if result.get("success") else EventLevel.WARNING,
+        "MANUAL_DRAFT_RESET",
+        "WORKSPACE_MANUAL",
+        result.get("message") or "Borrador manual reiniciado",
+        payload={"flow_id": str(flow.id), "draft_id": result.get("draft_id")},
+    )
+    return result
 
 
 @router.get("/batches/{batch_id}/events")

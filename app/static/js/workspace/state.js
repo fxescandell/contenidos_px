@@ -23,6 +23,7 @@ const HAS_MANUAL_ARTICLE = WORKSPACE_PAGE === 'manual-article';
 const HAS_MANUAL_BATCHES = WORKSPACE_PAGE === 'manual-batches';
 const HAS_PREPROCESS = WORKSPACE_PAGE === 'preprocess';
 const HAS_FINAL_REVIEW = WORKSPACE_PAGE === 'final-review';
+const HAS_ACTIVITY = WORKSPACE_PAGE === 'activity';
 
 const MUNI_LABELS = {
     BERGUEDA: 'Bergueda',

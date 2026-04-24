@@ -135,7 +135,7 @@ function selectVisibleTreeGroups() {
 function selectTreeGroupsByStatus(statuses) {
     const acceptedStatuses = new Set(statuses || []);
     const visibleRows = [...document.querySelectorAll('#tree-groups-body tr')];
-    let checkedAny = false;
+    let selectedCount = 0;
     visibleRows.forEach(row => {
         const check = row.querySelector('.tree-group-check');
         const badge = row.querySelector('.tree-status');
@@ -143,10 +143,40 @@ function selectTreeGroupsByStatus(statuses) {
         const rowStatus = (badge.textContent || '').trim();
         const shouldCheck = acceptedStatuses.has(rowStatus);
         check.checked = shouldCheck;
-        if (shouldCheck) checkedAny = true;
+        if (shouldCheck) selectedCount += 1;
     });
     const all = document.getElementById('tree-select-all');
-    if (all) all.checked = checkedAny;
+    if (all) all.checked = selectedCount > 0 && selectedCount === document.querySelectorAll('.tree-group-check').length;
+
+    if (selectedCount > 0) {
+        return selectedCount;
+    }
+
+    const hasMatchesOutsideCurrentFilter = (TREE_GROUPS || []).some(group => acceptedStatuses.has(group.status || 'UNASSIGNED'));
+    if (hasMatchesOutsideCurrentFilter && acceptedStatuses.has('PREVIEW_READY')) {
+        TREE_STATUS_FILTER = 'PREVIEW_READY';
+        document.querySelectorAll('.tree-filter-tab').forEach(item => {
+            item.classList.toggle('active', item.getAttribute('data-tree-filter') === 'PREVIEW_READY');
+        });
+        renderTreeGroups(TREE_GROUPS);
+
+        const previewRows = [...document.querySelectorAll('#tree-groups-body tr')];
+        let selectedAfterSwitch = 0;
+        previewRows.forEach(row => {
+            const check = row.querySelector('.tree-group-check');
+            if (!check) return;
+            check.checked = true;
+            selectedAfterSwitch += 1;
+        });
+        if (all) all.checked = selectedAfterSwitch > 0;
+        setTreeSectionResult('tree-validation-result', 'ok', `${selectedAfterSwitch} grupo(s) PREVIEW_READY seleccionado(s).`);
+        return selectedAfterSwitch;
+    }
+
+    if (acceptedStatuses.has('PREVIEW_READY')) {
+        setTreeSectionResult('tree-validation-result', 'err', 'No hay grupos en estado PREVIEW_READY para seleccionar.');
+    }
+    return 0;
 }
 
 function updateTreeStats(stats) {

@@ -46,11 +46,18 @@ class LlmClient:
             raise
 
     def _call_api(self, messages: List[Dict], max_tokens: int, timeout_seconds: Optional[float] = None) -> str:
-        if "openai" in self.provider.lower() or "anthropic" in self.provider.lower() or "groq" in self.provider.lower():
+        provider = self.provider.lower()
+        if (
+            "openai" in provider
+            or "anthropic" in provider
+            or "groq" in provider
+            or "mistral" in provider
+            or "azure" in provider
+        ):
             return self._call_openai_compatible(messages, max_tokens, timeout_seconds=timeout_seconds)
-        if "gemini" in self.provider.lower():
+        if "gemini" in provider:
             return self._call_gemini(messages, max_tokens, timeout_seconds=timeout_seconds)
-        if "ollama" in self.provider.lower():
+        if "ollama" in provider:
             return self._call_ollama(messages, max_tokens, timeout_seconds=timeout_seconds)
 
         raise ValueError(f"Proveedor LLM no soportado: {self.provider}")
@@ -59,16 +66,37 @@ class LlmClient:
         import httpx
 
         base_url = self.base_url
-        if self.provider.lower() == "anthropic":
+        provider = self.provider.lower()
+        if provider == "anthropic":
             base_url = base_url or "https://api.anthropic.com/v1"
             url = f"{base_url.rstrip('/')}/messages"
             headers = {"x-api-key": self.api_key, "content-type": "application/json", "anthropic-version": "2023-06-01"}
             payload = {"model": self.model, "max_tokens": max_tokens, "messages": messages}
-        elif self.provider.lower() == "groq":
+        elif provider == "groq":
             base_url = base_url or "https://api.groq.com/openai/v1"
             url = f"{base_url.rstrip('/')}/chat/completions"
             headers = {"Authorization": f"Bearer {self.api_key}", "content-type": "application/json"}
             payload = {"model": self.model, "max_tokens": max_tokens, "messages": messages}
+        elif provider == "mistral":
+            base_url = base_url or "https://api.mistral.ai/v1"
+            url = f"{base_url.rstrip('/')}/chat/completions"
+            headers = {"Authorization": f"Bearer {self.api_key}", "content-type": "application/json"}
+            payload = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "messages": messages,
+                "temperature": self.temperature,
+            }
+        elif provider == "azure":
+            base_url = base_url or "https://api.openai.com/v1"
+            url = f"{base_url.rstrip('/')}/chat/completions"
+            headers = {"Authorization": f"Bearer {self.api_key}", "content-type": "application/json"}
+            payload = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "messages": messages,
+                "temperature": self.temperature,
+            }
         else:
             base_url = base_url or "https://api.openai.com/v1"
             url = f"{base_url.rstrip('/')}/chat/completions"
@@ -80,7 +108,7 @@ class LlmClient:
         resp.raise_for_status()
         data = resp.json()
 
-        if self.provider.lower() == "anthropic":
+        if provider == "anthropic":
             return data.get("content", [{}])[0].get("text", "")
 
         choices = data.get("choices", [])
@@ -257,10 +285,14 @@ def get_active_llm_client(use_ocr_vision: bool = False) -> Optional[LlmClient]:
 
     if use_ocr_vision:
         connection_id = SettingsResolver.get("ocr_vision_connection_id")
-        if connection_id:
-            selected = next((c for c in connections if c.get("id") == connection_id and c.get("enabled")), None)
-            if selected and (selected.get("api_key") or str(selected.get("provider", "")).lower() == "ollama"):
-                return _build_client_from_connection(selected)
+        if not connection_id:
+            return None
+        selected = next((c for c in connections if c.get("id") == connection_id and c.get("enabled")), None)
+        if not selected:
+            return None
+        if selected.get("api_key") or str(selected.get("provider", "")).lower() == "ollama":
+            return _build_client_from_connection(selected)
+        return None
 
     enabled = SettingsResolver.get("llm_enabled")
     if not enabled:

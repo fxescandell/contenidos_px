@@ -39,6 +39,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helve
 .qa-item.active { background: #eff6ff; border-left: 3px solid #2563eb; }
 .qa-editor textarea { width: 100%; min-height: 110px; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px; font-size: 12px; }
 
+.activity-feed-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.activity-feed-summary { margin-top: 10px; font-size: 12px; color: #475569; }
+.activity-feed-list { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; max-height: 360px; overflow: auto; }
+.activity-feed-empty { padding: 14px 12px; font-size: 12px; color: #64748b; }
+.activity-feed-item { padding: 10px 12px; border-bottom: 1px solid #eef2f7; }
+.activity-feed-item:last-child { border-bottom: none; }
+.activity-feed-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; font-size: 11px; }
+.activity-feed-time { color: #64748b; }
+.activity-feed-module { border-radius: 999px; padding: 1px 8px; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; }
+.activity-feed-module.module-flows { background: #e0f2fe; color: #0c4a6e; }
+.activity-feed-module.module-manual { background: #ede9fe; color: #5b21b6; }
+.activity-feed-module.module-preprocess { background: #ecfccb; color: #365314; }
+.activity-feed-module.module-final-review { background: #ffedd5; color: #9a3412; }
+.activity-feed-module.module-system { background: #f3f4f6; color: #374151; }
+.activity-feed-type { color: #1f2937; font-weight: 600; }
+.activity-feed-stage { color: #64748b; }
+.activity-feed-message { font-size: 12px; color: #111827; white-space: pre-wrap; }
+.activity-feed-refs { margin-top: 2px; font-size: 11px; color: #64748b; }
+.activity-feed-payload { margin-top: 4px; font-size: 11px; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; }
+
 .btn { background: #0066cc; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; text-decoration: none; display: inline-block; }
 .btn:hover { background: #0052a3; text-decoration: none; color: white; }
 .btn-settings { background: #6c757d; }
@@ -268,6 +288,9 @@ a.action-link:hover { text-decoration: underline; }
     .manual-draft-grid { grid-template-columns: 1fr; }
     .manual-file-input { min-width: 100%; }
     .tree-folder-input { min-width: 100%; }
+    .activity-feed-controls .manual-select,
+    .activity-feed-controls .search-input,
+    .activity-feed-controls .btn { width: 100%; }
     .preview-compare-grid { grid-template-columns: 1fr; }
     .cleanup-preview-grid { grid-template-columns: 1fr; }
     .prep-grid { grid-template-columns: 1fr; }

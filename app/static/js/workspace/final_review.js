@@ -40,7 +40,7 @@ function renderQaSelectedArticle() {
 
     const data = article.data || {};
     titleInput.value = qaGetField(data, ['title', 'post_title', 'final_title']);
-    summaryInput.value = qaGetField(data, ['summary', 'excerpt', 'final_summary']);
+    summaryInput.value = qaGetField(data, ['summary', 'excerpt', 'final_summary', 'post_excerpt']);
     bodyInput.value = qaGetField(data, ['body_html', 'content', 'post_content', 'final_body_html']);
     const issues = article.issues || [];
     issuesBox.textContent = issues.length
@@ -145,21 +145,39 @@ async function runQaChecks() {
     }
     setModuleStatus('qa-status', 'loading', 'Ejecutando checks de calidad...');
     try {
-        const res = await fetch(`/api/v1/flows/workspace/final-review/sessions/${sid}/run-checks`, { method: 'POST' });
-        const data = await res.json();
-        if (res.ok && data.success !== false) {
-            qaArticles = data.articles || qaArticles;
-            if (!qaSelectedArticleId && qaArticles.length) qaSelectedArticleId = qaArticles[0].id;
-            renderQaArticlesList();
-            renderQaSelectedArticle();
-            const checks = data.checks || {};
-            setModuleStatus('qa-status', 'ok', `Checks completados. Issues: ${checks.issues_total || 0}, duplicados: ${checks.duplicates || 0}.`);
-        } else {
-            setModuleStatus('qa-status', 'err', data.detail || data.message || 'No se pudieron ejecutar los checks.');
-        }
+        const data = await runQaChecksSilently(sid);
+        const checks = data.checks || {};
+        const issuesTotal = checks.issues_total || 0;
+        const errorsTotal = checks.errors_total || 0;
+        const warningsTotal = checks.warnings || 0;
+        const dupBodies = checks.duplicates || 0;
+        const dupTitles = checks.title_duplicates || 0;
+        const kind = errorsTotal > 0 ? 'err' : (issuesTotal > 0 ? 'loading' : 'ok');
+        const statusText = issuesTotal > 0
+            ? `Checks completados con incidencias. Errores: ${errorsTotal}, warnings: ${warningsTotal}, duplicados cuerpo: ${dupBodies}, duplicados titulo: ${dupTitles}.`
+            : 'Checks completados sin incidencias.';
+        setModuleStatus('qa-status', kind, statusText);
     } catch (_e) {
         setModuleStatus('qa-status', 'err', 'Error de conexion ejecutando checks QA.');
     }
+}
+
+async function runQaChecksSilently(sessionId) {
+    const res = await fetch(`/api/v1/flows/workspace/final-review/sessions/${sessionId}/run-checks`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || data.success === false) {
+        throw new Error(data.detail || data.message || 'No se pudieron ejecutar los checks.');
+    }
+    qaArticles = data.articles || qaArticles;
+    if (!qaSelectedArticleId && qaArticles.length) qaSelectedArticleId = qaArticles[0].id;
+    renderQaArticlesList();
+    renderQaSelectedArticle();
+    return data;
+}
+
+function qaSyncSuffix(sync) {
+    if (!sync || (!sync.json_path && !sync.csv_path)) return '';
+    return ` Sync JSON: ${sync.json_path || '-'} | CSV: ${sync.csv_path || '-'}`;
 }
 
 async function saveQaArticleEdits() {
@@ -183,7 +201,7 @@ async function saveQaArticleEdits() {
         const data = await res.json();
         if (res.ok && data.success !== false) {
             await loadQaSessionState();
-            setModuleStatus('qa-status', 'ok', data.message || 'Articulo actualizado.');
+            setModuleStatus('qa-status', 'ok', `${data.message || 'Articulo actualizado.'}${qaSyncSuffix(data.sync)}`);
         } else {
             setModuleStatus('qa-status', 'err', data.detail || data.message || 'No se pudo guardar el articulo.');
         }
@@ -210,12 +228,84 @@ async function applyQaAiAdjust() {
         if (res.ok && data.success !== false) {
             document.getElementById('qa-ai-instructions').value = '';
             await loadQaSessionState();
-            setModuleStatus('qa-status', 'ok', data.message || 'IA aplicada correctamente.');
+            setModuleStatus('qa-status', 'ok', `${data.message || 'IA aplicada correctamente.'}${qaSyncSuffix(data.sync)}`);
         } else {
             setModuleStatus('qa-status', 'err', data.detail || data.message || 'No se pudo aplicar IA en QA.');
         }
     } catch (_e) {
         setModuleStatus('qa-status', 'err', 'Error de conexion aplicando IA en QA.');
+    }
+}
+
+async function autoFixQaArticleWithAi() {
+    const sid = (document.getElementById('qa-session-id')?.value || '').trim();
+    if (!sid || !qaSelectedArticleId) {
+        setModuleStatus('qa-status', 'err', 'Selecciona sesion y articulo para usar arreglo IA.');
+        return;
+    }
+
+    const article = qaArticles.find(item => item.id === qaSelectedArticleId);
+    if (!article) {
+        setModuleStatus('qa-status', 'err', 'Articulo no encontrado en la sesion actual.');
+        return;
+    }
+
+    setModuleStatus('qa-status', 'loading', 'Aplicando arreglo IA automatico...');
+    try {
+        let attempts = 0;
+        let lastSync = '';
+        let lastIssueCount = (article.issues || []).length;
+
+        while (attempts < 2) {
+            attempts += 1;
+            const current = qaArticles.find(item => item.id === qaSelectedArticleId) || article;
+            const issues = current.issues || [];
+            const issueLines = issues.length
+                ? issues.map(item => `- [${item.severity || 'info'}] ${item.code || '-'}: ${item.message || ''}`).join('\n')
+                : '- Sin incidencias concretas: aplica limpieza editorial basica (claridad, formato y coherencia).';
+
+            const instructions = [
+                `Arregla automaticamente este articulo segun incidencias QA (intento ${attempts}/2).`,
+                'Prioridades: resolver errores primero, luego warnings.',
+                'No inventes datos factuales ni cambies municipio/categoria.',
+                'Mantener el idioma del articulo (catalan cuando aplique).',
+                'Si falta resumen, generar excerpt breve (1-2 frases) en el campo de resumen existente.',
+                'Si body es corto, ampliar con informacion util y concreta sin inventar hechos.',
+                'Si summary duplica body, rehacer summary de forma breve y no redundante.',
+                'Si hay placeholders o mensajes tecnicos, eliminarlos del contenido final.',
+                '',
+                'Incidencias detectadas:',
+                issueLines,
+            ].join('\n');
+
+            const res = await fetch(`/api/v1/flows/workspace/final-review/sessions/${sid}/articles/${qaSelectedArticleId}/ai-adjust`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ instructions }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.success === false) {
+                setModuleStatus('qa-status', 'err', data.detail || data.message || 'No se pudo aplicar arreglo IA.');
+                return;
+            }
+            lastSync = qaSyncSuffix(data.sync);
+
+            const checksData = await runQaChecksSilently(sid);
+            const updated = (checksData.articles || []).find(item => item.id === qaSelectedArticleId);
+            const pending = (updated?.issues || []).length;
+            if (pending === 0) {
+                setModuleStatus('qa-status', 'ok', `Arreglo IA completado en ${attempts} intento(s).${lastSync}`);
+                return;
+            }
+            if (pending >= lastIssueCount && attempts >= 2) {
+                break;
+            }
+            lastIssueCount = pending;
+        }
+
+        setModuleStatus('qa-status', 'loading', `Arreglo IA aplicado, pero quedan incidencias en el articulo (${lastIssueCount}). Puedes relanzar auto-fix o ajustar manualmente.${lastSync}`);
+    } catch (_e) {
+        setModuleStatus('qa-status', 'err', 'Error de conexion aplicando arreglo IA.');
     }
 }
 

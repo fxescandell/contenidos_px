@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from app.services.settings.service import SettingsResolver
@@ -23,7 +24,15 @@ class FinalReviewWorkspaceService:
             "payload_shape": "",
             "payload": None,
             "articles": [],
-            "checks": {"run_at": None, "issues_total": 0, "duplicates": 0, "warnings": 0},
+            "checks": {
+                "run_at": None,
+                "issues_total": 0,
+                "errors_total": 0,
+                "warnings": 0,
+                "duplicates": 0,
+                "title_duplicates": 0,
+            },
+            "last_sync": {"json_path": "", "csv_path": "", "updated_at": None},
             "last_export": "",
             "updated_at": datetime.now().isoformat(),
         }
@@ -57,7 +66,15 @@ class FinalReviewWorkspaceService:
         state["payload_shape"] = shape
         state["payload"] = payload
         state["articles"] = articles
-        state["checks"] = {"run_at": None, "issues_total": 0, "duplicates": 0, "warnings": 0}
+        state["checks"] = {
+            "run_at": None,
+            "issues_total": 0,
+            "errors_total": 0,
+            "warnings": 0,
+            "duplicates": 0,
+            "title_duplicates": 0,
+        }
+        state["last_sync"] = {"json_path": "", "csv_path": "", "updated_at": None}
         state["updated_at"] = datetime.now().isoformat()
         self._save_state(session_id, state)
         return {
@@ -74,25 +91,76 @@ class FinalReviewWorkspaceService:
             return {"success": False, "message": "No hay articulos cargados para revisar."}
 
         body_index: Dict[str, List[str]] = {}
+        title_index: Dict[str, List[str]] = {}
         duplicates = 0
+        title_duplicates = 0
         warnings = 0
+        errors_total = 0
         issues_total = 0
 
         for article in articles:
             data = article.get("data") or {}
             issues: List[Dict[str, str]] = []
             title = self._pick(data, ["title", "post_title", "final_title"]) or ""
-            summary = self._pick(data, ["summary", "excerpt", "final_summary"]) or ""
+            summary = self._pick(data, ["summary", "excerpt", "final_summary", "post_excerpt"]) or ""
             body = self._pick(data, ["body_html", "content", "post_content", "final_body_html"]) or ""
 
             if not str(title).strip():
                 issues.append({"severity": "error", "code": "MISSING_TITLE", "message": "Falta titulo"})
+            if str(title).strip() and len(str(title).strip()) > 120:
+                issues.append({"severity": "warning", "code": "LONG_TITLE", "message": "Titulo demasiado largo para uso editorial/SEO."})
             if not str(body).strip():
                 issues.append({"severity": "error", "code": "MISSING_BODY", "message": "Falta cuerpo del articulo"})
+            has_summary_key = any(key in data for key in ["summary", "excerpt", "final_summary", "post_excerpt"])
+            if has_summary_key and not str(summary).strip():
+                issues.append({"severity": "warning", "code": "MISSING_SUMMARY", "message": "Falta resumen/excerpt"})
+            if body and len(self._normalize_text_for_dup(body)) < 260:
+                issues.append({"severity": "warning", "code": "SHORT_BODY", "message": "Cuerpo del articulo demasiado corto"})
+            if summary and body and self._summary_duplicates_body(summary, body):
+                issues.append({"severity": "warning", "code": "SUMMARY_DUPLICATES_BODY", "message": "El resumen parece duplicar el inicio del cuerpo."})
+            if self._contains_placeholder_text(title, summary, body):
+                issues.append({"severity": "error", "code": "PLACEHOLDER_TEXT", "message": "Se detecto texto placeholder o error tecnico en el contenido."})
+
+            has_featured_key = any(key in data for key in ["featured_image", "image", "post_image"])
+            featured_value = self._pick(data, ["featured_image", "image", "post_image"]) or ""
+            if has_featured_key and not str(featured_value).strip():
+                issues.append({"severity": "warning", "code": "MISSING_FEATURED_IMAGE", "message": "No hay imagen destacada configurada."})
+
+            html_issues = self._detect_html_structure_issues(body)
+            if html_issues:
+                issues.append(
+                    {
+                        "severity": "warning",
+                        "code": "BROKEN_HTML",
+                        "message": f"HTML potencialmente roto: {', '.join(html_issues[:2])}",
+                    }
+                )
+
+            link_checks = self._check_links_in_html(body)
+            if link_checks.get("empty"):
+                issues.append(
+                    {
+                        "severity": "warning",
+                        "code": "EMPTY_LINKS",
+                        "message": f"Se detectaron {link_checks['empty']} enlace(s) vacio(s) o de placeholder.",
+                    }
+                )
+            if link_checks.get("invalid"):
+                issues.append(
+                    {
+                        "severity": "warning",
+                        "code": "INVALID_LINKS",
+                        "message": f"Se detectaron {link_checks['invalid']} URL(s) con formato invalido.",
+                    }
+                )
 
             normalized_body = self._normalize_text_for_dup(body)
             if normalized_body:
                 body_index.setdefault(normalized_body, []).append(article["id"])
+
+            normalized_title = self._normalize_text_for_dup(title)
+            if normalized_title:
+                title_index.setdefault(normalized_title, []).append(article["id"])
 
             repeated = self._detect_repeated_sentences(body)
             if repeated:
@@ -111,7 +179,7 @@ class FinalReviewWorkspaceService:
 
         for ids in body_index.values():
             if len(ids) > 1:
-                duplicates += len(ids)
+                duplicates += len(ids) - 1
                 for article in articles:
                     if article["id"] in ids:
                         article.setdefault("issues", []).append(
@@ -122,16 +190,32 @@ class FinalReviewWorkspaceService:
                             }
                         )
 
+        for ids in title_index.values():
+            if len(ids) > 1:
+                title_duplicates += len(ids) - 1
+                for article in articles:
+                    if article["id"] in ids:
+                        article.setdefault("issues", []).append(
+                            {
+                                "severity": "warning",
+                                "code": "DUPLICATE_TITLE",
+                                "message": "Titulo repetido en varios articulos del mismo export.",
+                            }
+                        )
+
         for article in articles:
             issues = article.get("issues") or []
             issues_total += len(issues)
             warnings += sum(1 for issue in issues if issue.get("severity") == "warning")
+            errors_total += sum(1 for issue in issues if issue.get("severity") == "error")
 
         state["articles"] = articles
         state["checks"] = {
             "run_at": datetime.now().isoformat(),
             "issues_total": issues_total,
+            "errors_total": errors_total,
             "duplicates": duplicates,
+            "title_duplicates": title_duplicates,
             "warnings": warnings,
         }
         state["updated_at"] = datetime.now().isoformat()
@@ -153,14 +237,15 @@ class FinalReviewWorkspaceService:
         if "title" in payload:
             self._set_first_existing_key(data, ["title", "post_title", "final_title"], str(payload.get("title") or ""))
         if "summary" in payload:
-            self._set_first_existing_key(data, ["summary", "excerpt", "final_summary"], str(payload.get("summary") or ""))
+            self._set_first_existing_key(data, ["summary", "excerpt", "final_summary", "post_excerpt"], str(payload.get("summary") or ""))
         if "body_html" in payload:
             self._set_first_existing_key(data, ["body_html", "content", "post_content", "final_body_html"], str(payload.get("body_html") or ""))
 
         article["data"] = data
         state["updated_at"] = datetime.now().isoformat()
+        sync = self._sync_review_outputs(session_id, state)
         self._save_state(session_id, state)
-        return {"success": True, "message": "Articulo actualizado.", "article": article}
+        return {"success": True, "message": "Articulo actualizado.", "article": article, "sync": sync}
 
     def ai_adjust_article(self, session_id: str, article_id: str, instructions: str) -> Dict[str, Any]:
         if not instructions or not instructions.strip():
@@ -196,13 +281,16 @@ class FinalReviewWorkspaceService:
         if not isinstance(candidate, dict):
             return {"success": False, "message": "La IA devolvio un formato invalido para articulo."}
 
-        if set(candidate.keys()) != set(current.keys()):
-            return {"success": False, "message": "La propuesta IA altera la estructura del articulo."}
+        if "data" in candidate and isinstance(candidate.get("data"), dict):
+            nested = candidate.get("data") or {}
+            if nested:
+                candidate = nested
 
-        article["data"] = candidate
+        article["data"] = self._merge_ai_candidate(current, candidate)
         state["updated_at"] = datetime.now().isoformat()
+        sync = self._sync_review_outputs(session_id, state)
         self._save_state(session_id, state)
-        return {"success": True, "message": "Articulo ajustado con IA.", "article": article}
+        return {"success": True, "message": "Articulo ajustado con IA.", "article": article, "sync": sync}
 
     def export_reviewed(self, session_id: str) -> Dict[str, Any]:
         state = self._load_state(session_id)
@@ -304,6 +392,26 @@ class FinalReviewWorkspaceService:
             return articles[0].get("data") or {}
         return original
 
+    def _sync_review_outputs(self, session_id: str, state: Dict[str, Any]) -> Dict[str, str]:
+        output_dir = self._session_root(session_id) / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        payload = self._rebuild_payload(state)
+        json_path = output_dir / "reviewed_latest.json"
+        csv_path = output_dir / "reviewed_latest.csv"
+
+        json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        rows = [item.get("data") or {} for item in (state.get("articles") or [])]
+        self._write_csv(csv_path, rows)
+
+        sync_info = {
+            "json_path": str(json_path),
+            "csv_path": str(csv_path),
+            "updated_at": datetime.now().isoformat(),
+        }
+        state["last_sync"] = sync_info
+        return sync_info
+
     def _pick(self, data: Dict[str, Any], keys: List[str]) -> Optional[Any]:
         for key in keys:
             if key in data:
@@ -316,6 +424,12 @@ class FinalReviewWorkspaceService:
                 data[key] = value
                 return
         data[keys[0]] = value
+
+    def _set_first_existing_key_if_present(self, data: Dict[str, Any], keys: List[str], value: Any) -> None:
+        for key in keys:
+            if key in data:
+                data[key] = value
+                return
 
     def _normalize_text_for_dup(self, text: Any) -> str:
         value = re.sub(r"<[^>]+>", " ", str(text or ""))
@@ -330,6 +444,132 @@ class FinalReviewWorkspaceService:
             normalized = sentence.lower()
             counter[normalized] = counter.get(normalized, 0) + 1
         return [sentence for sentence, count in counter.items() if count > 1 and len(sentence) > 35]
+
+    def _summary_duplicates_body(self, summary: Any, body: Any) -> bool:
+        summary_norm = self._normalize_text_for_dup(summary)
+        body_norm = self._normalize_text_for_dup(body)
+        if not summary_norm or not body_norm:
+            return False
+        if len(summary_norm) < 30:
+            return False
+        return body_norm.startswith(summary_norm) or summary_norm in body_norm[: max(300, len(summary_norm) + 40)]
+
+    def _contains_placeholder_text(self, title: Any, summary: Any, body: Any) -> bool:
+        combined = "\n".join([str(title or ""), str(summary or ""), str(body or "")]).lower()
+        placeholders = (
+            "[error",
+            "error ocr",
+            "pendiente de completar",
+            "pendent de completar",
+            "programa no detectat",
+            "lorem ipsum",
+        )
+        return any(token in combined for token in placeholders)
+
+    def _detect_html_structure_issues(self, body: Any) -> List[str]:
+        text = str(body or "")
+        if "<" not in text or ">" not in text:
+            return []
+
+        tag_re = re.compile(r"<\s*(/)?\s*([a-zA-Z][\w:-]*)[^>]*?>")
+        void_tags = {
+            "br",
+            "hr",
+            "img",
+            "input",
+            "meta",
+            "link",
+            "source",
+            "track",
+            "wbr",
+            "col",
+            "area",
+            "base",
+            "embed",
+            "param",
+        }
+
+        stack: List[str] = []
+        problems: List[str] = []
+        for match in tag_re.finditer(text):
+            is_closing = bool(match.group(1))
+            tag = str(match.group(2) or "").lower()
+            raw = match.group(0)
+            self_closing = raw.rstrip().endswith("/>")
+
+            if tag in void_tags or self_closing:
+                continue
+
+            if is_closing:
+                if not stack:
+                    problems.append(f"cierre inesperado </{tag}>")
+                    continue
+                if stack[-1] == tag:
+                    stack.pop()
+                    continue
+                problems.append(f"orden de cierre invalido </{tag}>")
+                if tag in stack:
+                    while stack and stack[-1] != tag:
+                        stack.pop()
+                    if stack and stack[-1] == tag:
+                        stack.pop()
+            else:
+                stack.append(tag)
+
+        if stack:
+            pending = ", ".join(f"<{tag}>" for tag in stack[:3])
+            problems.append(f"etiquetas sin cierre {pending}")
+
+        unique: List[str] = []
+        for problem in problems:
+            if problem not in unique:
+                unique.append(problem)
+        return unique
+
+    def _check_links_in_html(self, body: Any) -> Dict[str, int]:
+        text = str(body or "")
+        hrefs = re.findall(r"href\s*=\s*[\"']([^\"']*)[\"']", text, flags=re.IGNORECASE)
+        empty = 0
+        invalid = 0
+        for href in hrefs:
+            value = str(href or "").strip()
+            lower = value.lower()
+            if not value or lower in {"#", "javascript:;", "javascript:void(0)"}:
+                empty += 1
+                continue
+            if lower.startswith("javascript:"):
+                invalid += 1
+                continue
+            if value.startswith(("mailto:", "tel:", "/", "#")):
+                continue
+            if value.startswith(("http://", "https://")):
+                parsed = urlparse(value)
+                if not parsed.netloc or " " in value:
+                    invalid += 1
+                continue
+            if " " in value:
+                invalid += 1
+        return {"empty": empty, "invalid": invalid}
+
+    def _merge_ai_candidate(self, current: Dict[str, Any], candidate: Dict[str, Any]) -> Dict[str, Any]:
+        merged = dict(current)
+
+        for key in list(current.keys()):
+            if key in candidate:
+                merged[key] = candidate.get(key)
+
+        ai_title = self._pick(candidate, ["title", "post_title", "final_title"])
+        ai_summary = self._pick(candidate, ["summary", "excerpt", "final_summary", "post_excerpt"])
+        ai_body = self._pick(candidate, ["body_html", "content", "post_content", "final_body_html"])
+
+        if ai_title is not None and str(ai_title).strip():
+            self._set_first_existing_key_if_present(merged, ["title", "post_title", "final_title"], str(ai_title))
+        if ai_summary is not None and str(ai_summary).strip():
+            self._set_first_existing_key_if_present(merged, ["summary", "excerpt", "final_summary", "post_excerpt"], str(ai_summary))
+        if ai_body is not None and str(ai_body).strip():
+            self._set_first_existing_key_if_present(merged, ["body_html", "content", "post_content", "final_body_html"], str(ai_body))
+
+        return merged
 
     def _extract_json(self, text: str) -> str:
         cleaned = (text or "").strip()

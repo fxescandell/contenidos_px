@@ -29,3 +29,7 @@ if (HAS_FINAL_REVIEW) {
     renderQaArticlesList();
     renderQaSelectedArticle();
 }
+
+if (HAS_ACTIVITY && typeof setupGlobalActivityFeed === 'function') {
+    setupGlobalActivityFeed();
+}

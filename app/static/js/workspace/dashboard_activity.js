@@ -295,3 +295,136 @@ function renderActivityModal(batch, events) {
     }).join('');
     logEl.scrollTop = logEl.scrollHeight;
 }
+
+let globalActivityTimer = null;
+let globalActivitySearchTimer = null;
+
+function moduleLabel(moduleName) {
+    const value = String(moduleName || '').toLowerCase();
+    if (value === 'flows') return 'Flujos';
+    if (value === 'manual') return 'Manual';
+    if (value === 'preprocess') return 'Preprocesado';
+    if (value === 'final-review') return 'Revision final';
+    if (value === 'system') return 'Sistema';
+    return value || 'Desconocido';
+}
+
+function scheduleGlobalActivityFeedReload() {
+    if (globalActivitySearchTimer) {
+        clearTimeout(globalActivitySearchTimer);
+    }
+    globalActivitySearchTimer = setTimeout(loadGlobalActivityFeed, 320);
+}
+
+function setupGlobalActivityFeed() {
+    const container = document.getElementById('global-activity-list');
+    if (!container) return;
+    loadGlobalActivityFeed();
+    if (globalActivityTimer) clearInterval(globalActivityTimer);
+    globalActivityTimer = setInterval(loadGlobalActivityFeed, 6000);
+}
+
+function renderGlobalActivitySummary(total, counts) {
+    const el = document.getElementById('global-activity-summary');
+    if (!el) return;
+    const c = counts || {};
+    el.textContent = `Eventos: ${total || 0} · Flujos ${c.flows || 0} · Manual ${c.manual || 0} · Preprocesado ${c.preprocess || 0} · Revision final ${c['final-review'] || 0} · Sistema ${c.system || 0}`;
+}
+
+function renderGlobalActivityFeed(events) {
+    const list = document.getElementById('global-activity-list');
+    if (!list) return;
+
+    const data = events || [];
+    if (!data.length) {
+        list.innerHTML = '<div class="activity-feed-empty">No hay eventos para los filtros actuales.</div>';
+        return;
+    }
+
+    list.innerHTML = data.map(event => {
+        const payloadText = event.payload && Object.keys(event.payload).length
+            ? `<div class="activity-feed-payload">${escapeHtml(JSON.stringify(event.payload, null, 2))}</div>`
+            : '';
+        const refs = [];
+        if (event.batch_id) refs.push(`batch ${event.batch_id}`);
+        if (event.candidate_id) refs.push(`candidate ${event.candidate_id}`);
+        const refsText = refs.length ? `<div class="activity-feed-refs">${escapeHtml(refs.join(' · '))}</div>` : '';
+        return `<div class="activity-feed-item"><div class="activity-feed-meta"><span class="activity-feed-time">${escapeHtml(formatDateTime(event.created_at))}</span><span class="activity-feed-module module-${escapeHtml(event.module || 'flows')}">${escapeHtml(moduleLabel(event.module || 'flows'))}</span><span class="activity-level ${escapeHtml(event.level || 'INFO')}">${escapeHtml(event.level || 'INFO')}</span><span class="activity-feed-type">${escapeHtml(event.event_type || '')}</span><span class="activity-feed-stage">${escapeHtml(event.stage || '-')}</span></div><div class="activity-feed-message">${escapeHtml(event.message || '')}</div>${refsText}${payloadText}</div>`;
+    }).join('');
+}
+
+async function loadGlobalActivityFeed() {
+    const list = document.getElementById('global-activity-list');
+    if (!list) return;
+
+    const module = document.getElementById('global-activity-module')?.value || 'all';
+    const level = document.getElementById('global-activity-level')?.value || 'all';
+    const query = document.getElementById('global-activity-search')?.value || '';
+
+    const params = new URLSearchParams({
+        module,
+        level,
+        q: query,
+        limit: '250',
+    });
+
+    try {
+        const res = await fetch(`/api/v1/flows/workspace/activity-feed?${params.toString()}`);
+        const data = await res.json();
+        if (!res.ok || data.success === false) {
+            list.innerHTML = '<div class="activity-feed-empty">No se pudo cargar la actividad global.</div>';
+            return;
+        }
+        renderGlobalActivitySummary(data.total || 0, data.module_counts || {});
+        renderGlobalActivityFeed(data.events || []);
+    } catch (_e) {
+        list.innerHTML = '<div class="activity-feed-empty">Error de conexion cargando la actividad global.</div>';
+    }
+}
+
+async function clearGlobalActivityFeed() {
+    const ok = confirm('Se eliminara TODO el historial de actividad del workspace. Esta accion no se puede deshacer.');
+    if (!ok) return;
+
+    const list = document.getElementById('global-activity-list');
+    const summary = document.getElementById('global-activity-summary');
+    if (list) {
+        list.innerHTML = '<div class="activity-feed-empty">Borrando actividad...</div>';
+    }
+
+    try {
+        const res = await fetch('/api/v1/flows/workspace/activity-feed/clear', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok || data.success === false) {
+            if (summary) summary.textContent = data.detail || data.message || 'No se pudo borrar la actividad.';
+            await loadGlobalActivityFeed();
+            return;
+        }
+        if (summary) summary.textContent = data.message || 'Actividad eliminada.';
+        await loadGlobalActivityFeed();
+    } catch (_e) {
+        if (summary) summary.textContent = 'Error de conexion borrando actividad.';
+        await loadGlobalActivityFeed();
+    }
+}
+
+function exportGlobalActivityFeed() {
+    const module = document.getElementById('global-activity-module')?.value || 'all';
+    const level = document.getElementById('global-activity-level')?.value || 'all';
+    const query = document.getElementById('global-activity-search')?.value || '';
+    const format = document.getElementById('global-activity-export-format')?.value || 'json';
+
+    const params = new URLSearchParams({
+        module,
+        level,
+        q: query,
+        limit: '500',
+        format,
+    });
+
+    const summary = document.getElementById('global-activity-summary');
+    if (summary) {
+        summary.textContent = `Preparando export de actividad (${format.toUpperCase()})...`;
+    }
+    window.open(`/api/v1/flows/workspace/activity-feed/export?${params.toString()}`, '_blank');
+}
