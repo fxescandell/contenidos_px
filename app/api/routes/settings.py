@@ -17,6 +17,7 @@ from app.core.settings_enums import SettingType
 from app.services.remote.clients import FtpRemoteInboxClient, SftpRemoteInboxClient, LocalFolderInboxClient, SmbRemoteInboxClient, FtpOutfolderClient, LocalOutfolderClient
 from app.services.notifications.telegram import TelegramNotifier
 from app.services.categories.service import get_category_export_configs
+from app.services.editorial.prompt_guides import PX_AGENDA_PROMPT_GUIDE, PX_EDITORIAL_PROMPT_GUIDE
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -640,12 +641,16 @@ def settings_categories(request: Request, db: Session = Depends(get_db)):
     SettingsService.initialize_defaults(db)
     SettingsResolver.reload(db)
     configs = get_category_export_configs()
+    editorial_prompt = SettingsResolver.get("px_editorial_prompt_guide", PX_EDITORIAL_PROMPT_GUIDE)
+    agenda_prompt = SettingsResolver.get("px_agenda_prompt_guide", PX_AGENDA_PROMPT_GUIDE)
     return templates.TemplateResponse(
         request=request,
         name="settings/categories.html",
         context={
             "configs": configs,
             "configs_json": _json.dumps(configs, ensure_ascii=False),
+            "editorial_prompt": editorial_prompt or PX_EDITORIAL_PROMPT_GUIDE,
+            "agenda_prompt": agenda_prompt or PX_AGENDA_PROMPT_GUIDE,
             "active_page": "categories",
             "success": request.query_params.get("success")
         }
@@ -668,7 +673,19 @@ async def save_categories(request: Request, db: Session = Depends(get_db)):
             value=_json.dumps(configs, ensure_ascii=False),
             value_type=SettingType.JSON,
             is_secret=False
-        )
+        ),
+        SettingItemUpdate(
+            key="px_editorial_prompt_guide",
+            value=str(form_data.get("px_editorial_prompt_guide", "") or PX_EDITORIAL_PROMPT_GUIDE),
+            value_type=SettingType.STRING,
+            is_secret=False
+        ),
+        SettingItemUpdate(
+            key="px_agenda_prompt_guide",
+            value=str(form_data.get("px_agenda_prompt_guide", "") or PX_AGENDA_PROMPT_GUIDE),
+            value_type=SettingType.STRING,
+            is_secret=False
+        ),
     ]
     SettingsService.update_section(db, "categories", updates, user="admin_user")
     return RedirectResponse(url="/settings/categories?success=true", status_code=303)

@@ -9,7 +9,7 @@ from app.services.settings.service import SettingsResolver
 
 class FlowExporter:
     def __init__(self):
-        pass
+        self._ftp_connection = None
 
     def _get_active_mode(self) -> str:
         return SettingsResolver.get("active_source_mode", "smb") or "smb"
@@ -19,6 +19,44 @@ class FlowExporter:
 
     def _get_local_hotfolder_path(self) -> str:
         return SettingsResolver.get("hot_folder_local_path") or "/tmp/hot_folder"
+
+    def _get_ftp_connection(self):
+        if self._ftp_connection is not None:
+            try:
+                self._ftp_connection.voidcmd("NOOP")
+                return self._ftp_connection
+            except Exception:
+                try:
+                    self._ftp_connection.quit()
+                except Exception:
+                    pass
+                self._ftp_connection = None
+
+        from ftplib import FTP
+        host = SettingsResolver.get("outfolder_host") or ""
+        port = int(SettingsResolver.get("outfolder_port", 21) or 21)
+        user = SettingsResolver.get("outfolder_username") or ""
+        passwd = SettingsResolver.get("outfolder_password") or ""
+        timeout = int(SettingsResolver.get("outfolder_timeout", 30) or 30)
+        passive = SettingsResolver.get("outfolder_passive_mode", True)
+
+        if not host:
+            return None
+
+        ftp = FTP()
+        ftp.connect(host, port, timeout=timeout)
+        ftp.login(user, passwd)
+        ftp.set_pasv(passive)
+        self._ftp_connection = ftp
+        return ftp
+
+    def _close_ftp_connection(self):
+        if self._ftp_connection is not None:
+            try:
+                self._ftp_connection.quit()
+            except Exception:
+                pass
+            self._ftp_connection = None
 
     def _get_outfolder_mapping(self, municipality: str, mode: str) -> Dict[str, str]:
         settings_key = "outfolder_local_folders" if mode == "local" else "outfolder_folders"
@@ -88,38 +126,41 @@ class FlowExporter:
         mode = self._get_active_mode()
         uploaded: List[Dict[str, Any]] = []
 
-        for plan in image_plans:
-            try:
-                optimized_local_path = plan.get("optimized_local_path") or ""
-                thumbnail_local_path = plan.get("thumbnail_local_path") or ""
+        try:
+            for plan in image_plans:
+                try:
+                    optimized_local_path = plan.get("optimized_local_path") or ""
+                    thumbnail_local_path = plan.get("thumbnail_local_path") or ""
 
-                if optimized_local_path and os.path.exists(optimized_local_path):
-                    if mode == "local":
-                        optimized_destination = self._copy_local_asset(plan.get("optimized_remote_path", ""), optimized_local_path)
-                        self._cleanup_temp_asset(optimized_local_path, optimized_destination)
-                    else:
-                        with open(optimized_local_path, "rb") as f:
-                            ok, msg = self._upload_ftp(plan.get("optimized_remote_path", ""), f.read())
-                        if not ok:
-                            return False, msg, uploaded
-                        self._cleanup_temp_asset(optimized_local_path)
+                    if optimized_local_path and os.path.exists(optimized_local_path):
+                        if mode == "local":
+                            optimized_destination = self._copy_local_asset(plan.get("optimized_remote_path", ""), optimized_local_path)
+                            self._cleanup_temp_asset(optimized_local_path, optimized_destination)
+                        else:
+                            with open(optimized_local_path, "rb") as f:
+                                ok, msg = self._upload_ftp_reuse(plan.get("optimized_remote_path", ""), f.read())
+                            if not ok:
+                                return False, msg, uploaded
+                            self._cleanup_temp_asset(optimized_local_path)
 
-                if thumbnail_local_path and os.path.exists(thumbnail_local_path):
-                    if mode == "local":
-                        thumbnail_destination = self._copy_local_asset(plan.get("thumbnail_remote_path", ""), thumbnail_local_path)
-                        self._cleanup_temp_asset(thumbnail_local_path, thumbnail_destination)
-                    else:
-                        with open(thumbnail_local_path, "rb") as f:
-                            ok, msg = self._upload_ftp(plan.get("thumbnail_remote_path", ""), f.read())
-                        if not ok:
-                            return False, msg, uploaded
-                        self._cleanup_temp_asset(thumbnail_local_path)
+                    if thumbnail_local_path and os.path.exists(thumbnail_local_path):
+                        if mode == "local":
+                            thumbnail_destination = self._copy_local_asset(plan.get("thumbnail_remote_path", ""), thumbnail_local_path)
+                            self._cleanup_temp_asset(thumbnail_local_path, thumbnail_destination)
+                        else:
+                            with open(thumbnail_local_path, "rb") as f:
+                                ok, msg = self._upload_ftp_reuse(plan.get("thumbnail_remote_path", ""), f.read())
+                            if not ok:
+                                return False, msg, uploaded
+                            self._cleanup_temp_asset(thumbnail_local_path)
 
-                uploaded.append(plan)
-            except Exception as e:
-                return False, f"Error subiendo imagenes: {e}", uploaded
+                    uploaded.append(plan)
+                except Exception as e:
+                    return False, f"Error subiendo imagenes: {e}", uploaded
 
-        return True, f"{len(uploaded)} imagen(es) subida(s)", uploaded
+            return True, f"{len(uploaded)} imagen(es) subida(s)", uploaded
+        finally:
+            self._close_ftp_connection()
 
     def _copy_local_asset(self, remote_like_path: str, local_source_path: str) -> str:
         base = self._get_local_outfolder_base()
@@ -285,4 +326,34 @@ class FlowExporter:
             ftp.quit()
             return True, f"{content_label} subido por FTP: {remote_path}"
         except Exception as e:
+            return False, f"Error subiendo {content_label} por FTP: {e}"
+
+    def _upload_ftp_reuse(self, remote_path: str, content: bytes, content_label: str = "imagen") -> Tuple[bool, str]:
+        try:
+            ftp = self._get_ftp_connection()
+            if ftp is None:
+                return False, "Falta configurar Host FTP de salida"
+
+            dirname = "/".join(remote_path.split("/")[:-1])
+            filename = remote_path.split("/")[-1]
+            if dirname:
+                try:
+                    ftp.cwd(dirname)
+                except Exception:
+                    dirs = dirname.strip("/").split("/")
+                    current = ""
+                    for d in dirs:
+                        current += "/" + d
+                        try:
+                            ftp.cwd(current)
+                        except Exception:
+                            try:
+                                ftp.mkd(current)
+                            except Exception:
+                                pass
+
+            ftp.storbinary(f"STOR {filename}", BytesIO(content))
+            return True, f"{content_label} subida por FTP: {remote_path}"
+        except Exception as e:
+            self._close_ftp_connection()
             return False, f"Error subiendo {content_label} por FTP: {e}"

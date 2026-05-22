@@ -6,6 +6,7 @@ from sqlalchemy import func
 from uuid import UUID
 from datetime import datetime
 from pathlib import Path
+import time
 
 from app.db.session import get_db
 from app.db.repositories.all_repos import source_batch_repo, content_candidate_repo, processing_event_repo
@@ -14,8 +15,16 @@ from app.core.states import BatchStatus
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
+_assets_version_cache = {"version": None, "timestamp": 0.0}
+_ASSETS_VERSION_TTL = 3.0
+
 
 def _compute_workspace_assets_version() -> str:
+    now = time.monotonic()
+    cached = _assets_version_cache["version"]
+    if cached is not None and (now - _assets_version_cache["timestamp"]) < _ASSETS_VERSION_TTL:
+        return cached
+
     latest_mtime_ns = 0
     asset_roots = [
         (Path("app/static/js"), "*.js"),
@@ -31,8 +40,13 @@ def _compute_workspace_assets_version() -> str:
                 continue
 
     if latest_mtime_ns <= 0:
-        return datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    return str(latest_mtime_ns)
+        version = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    else:
+        version = str(latest_mtime_ns)
+
+    _assets_version_cache["version"] = version
+    _assets_version_cache["timestamp"] = now
+    return version
 
 
 ACTIVE_STATUSES = [BatchStatus.DETECTED, BatchStatus.COPYING, BatchStatus.COPIED,
@@ -178,9 +192,8 @@ def batch_detail(request: Request, batch_id: UUID, db: Session = Depends(get_db)
     if not batch:
         return RedirectResponse(url="/workspace/dashboard", status_code=302)
 
-    events = processing_event_repo.get_all(db)
-    batch_events = [e for e in events if e.batch_id == batch.id]
-    batch_events.sort(key=lambda x: x.created_at, reverse=True)
+    events = processing_event_repo.get_by_batch_id(db, batch.id)
+    batch_events = events[:50]
 
     files_data = []
     for f in (batch.files or []):
@@ -231,7 +244,7 @@ def batch_detail(request: Request, batch_id: UUID, db: Session = Depends(get_db)
         })
 
     events_data = []
-    for e in batch_events[:50]:
+    for e in batch_events:
         events_data.append({
             "level": e.level.value if e.level else "INFO",
             "event_type": e.event_type,
@@ -278,8 +291,7 @@ def candidate_detail(request: Request, candidate_id: UUID, db: Session = Depends
     extracted_texts = []
     if candidate.batch:
         from app.db.repositories.all_repos import extracted_document_repo
-        all_extractions = extracted_document_repo.get_all(db)
-        extracted_texts = [e for e in all_extractions if e.candidate_id == candidate.id]
+        extracted_texts = extracted_document_repo.get_by_candidate_id(db, candidate.id)
 
     return templates.TemplateResponse(
         request=request,

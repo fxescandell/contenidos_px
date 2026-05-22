@@ -54,6 +54,21 @@ function clearTreeSelection() {
     if (all) all.checked = false;
 }
 
+function useAgendaProgramFields() {
+    const input = document.getElementById('tree-agenda-program-mode');
+    return Boolean(input && input.checked);
+}
+
+function useOcrInPreview() {
+    const input = document.getElementById('tree-enable-ocr');
+    return Boolean(input && input.checked);
+}
+
+function useSeoInPreview() {
+    const input = document.getElementById('tree-enable-seo');
+    return Boolean(input && input.checked);
+}
+
 function toggleAllTreeGroups(source) {
     document.querySelectorAll('.tree-group-check').forEach(item => {
         item.checked = Boolean(source && source.checked);
@@ -366,7 +381,12 @@ async function previewSelectedTreeGroups() {
         const res = await fetch('/api/v1/flows/manual/inbox/groups/preview', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ group_ids: groupIds })
+            body: JSON.stringify({
+                group_ids: groupIds,
+                agenda_program_fields: useAgendaProgramFields(),
+                enable_ocr: useOcrInPreview(),
+                enable_seo: useSeoInPreview(),
+            })
         });
         const data = await res.json();
         if (res.ok && data.success !== false) {
@@ -389,7 +409,12 @@ async function previewOneTreeGroup(groupId) {
         const res = await fetch('/api/v1/flows/manual/inbox/groups/preview', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ group_ids: [groupId] })
+            body: JSON.stringify({
+                group_ids: [groupId],
+                agenda_program_fields: useAgendaProgramFields(),
+                enable_ocr: useOcrInPreview(),
+                enable_seo: useSeoInPreview(),
+            })
         });
         const data = await res.json();
         if (res.ok && data.success !== false) {

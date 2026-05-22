@@ -24,6 +24,7 @@
         label { display: block; margin-bottom: 6px; font-weight: 600; color: #444; font-size: 14px; }
         textarea { width: 100%; min-height: 180px; padding: 10px 12px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.5; resize: vertical; }
         .instructions { min-height: 120px; }
+        .prompt-guide { min-height: 320px; }
         .help-text { font-size: 12px; color: #666; margin-top: 4px; display: block; }
         .btn { background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 15px; }
         .btn:hover { background: #218838; }
@@ -50,6 +51,23 @@
 
             <form method="POST" action="/settings/categories" onsubmit="syncCategoryConfigs()">
                 <input type="hidden" id="category_export_configs_json" name="category_export_configs_json" value="{{ configs_json|e }}">
+
+                <div class="section-box">
+                    <h3>Prompts editoriales Pànxing</h3>
+                    <p class="desc">Estas guias se inyectan en la generacion editorial antes de las instrucciones tecnicas. El sistema sigue exigiendo JSON valido, HTML limpio y la estructura estricta de exportacion.</p>
+
+                    <div class="form-group">
+                        <label>Prompt editorial general</label>
+                        <textarea class="prompt-guide" name="px_editorial_prompt_guide" spellcheck="false">{{ editorial_prompt or '' }}</textarea>
+                        <span class="help-text">Se usa para noticias, cultura, turismo, deportes, gastronomia, entrevistas, consells y el resto de categorias no agenda.</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Prompt de agenda</label>
+                        <textarea class="prompt-guide" name="px_agenda_prompt_guide" spellcheck="false">{{ agenda_prompt or '' }}</textarea>
+                        <span class="help-text">Se usa cuando la categoria detectada o configurada es AGENDA. El parser determinista de actividades sigue activo.</span>
+                    </div>
+                </div>
 
                 {% for item in configs %}
                 <div class="category-card" data-category="{{ item.category }}">

@@ -13,6 +13,7 @@ from app.schemas.all_schemas import EditorialBuildResult, ImageProcessingResult
 from app.schemas.classification import FinalClassificationResult
 from app.services.editorial.agenda_parser import parse_agenda, render_agenda_html, render_highlight_box
 from app.services.editorial.final_review import final_review_service
+from app.services.editorial.prompt_guides import PX_AGENDA_PROMPT_GUIDE, PX_EDITORIAL_PROMPT_GUIDE
 from app.services.categories.service import (
     get_category_export_config,
     parse_json_example,
@@ -22,6 +23,7 @@ from app.services.categories.service import (
     normalize_strict_payload_consells_fields,
     resolve_consells_type,
 )
+from app.services.settings.service import SettingsResolver
 
 logger = logging.getLogger(__name__)
 MARKDOWN_HEADING_RE = re.compile(r"^\[\[H([1-6])\]\]\s*(.+)$")
@@ -143,7 +145,6 @@ MONTH_NAME_TO_NUMBER = {
     "december": 12,
 }
 
-
 class EditorialBuilderService:
 
     def __init__(self):
@@ -178,6 +179,9 @@ class EditorialBuilderService:
         category = classification.category.value if classification.category else ""
         subtype = classification.subtype.value if classification.subtype else ""
         category_config = get_category_export_config(category)
+        seo_enabled = bool(metadata.get("enable_seo", True))
+        review_enabled = not bool(metadata.get("disable_final_review", False))
+        strip_seo_fields = bool(metadata.get("disable_seo_fields", False))
 
         llm_result = self._try_llm(prepared_text, municipality, category, subtype, category_config, source_context, metadata)
         if llm_result:
@@ -195,20 +199,21 @@ class EditorialBuilderService:
                 source_context=source_context,
                 metadata={**metadata, "category": category},
             )
-            final_title, final_summary, final_body_html, structured_fields = self._apply_final_review(
-                municipality=municipality,
-                category=category,
-                subtype=subtype,
-                original_text=prepared_text,
-                vision_context_text=self._clean_text_line(metadata.get("vision_context_text", "")),
-                title=final_title,
-                summary=final_summary,
-                body_html=final_body_html,
-                structured_fields=structured_fields,
-                images=images,
-                source_context=source_context,
-                metadata={**metadata, "category": category},
-            )
+            if review_enabled:
+                final_title, final_summary, final_body_html, structured_fields = self._apply_final_review(
+                    municipality=municipality,
+                    category=category,
+                    subtype=subtype,
+                    original_text=prepared_text,
+                    vision_context_text=self._clean_text_line(metadata.get("vision_context_text", "")),
+                    title=final_title,
+                    summary=final_summary,
+                    body_html=final_body_html,
+                    structured_fields=structured_fields,
+                    images=images,
+                    source_context=source_context,
+                    metadata={**metadata, "category": category},
+                )
 
             self._normalize_category_specific_fields(structured_fields, llm_result, category, prepared_text)
             strict_payload = self._resolve_strict_payload(
@@ -226,6 +231,8 @@ class EditorialBuilderService:
             )
             if strict_payload is not None:
                 structured_fields["_strict_export_payload"] = strict_payload
+            if strip_seo_fields or not seo_enabled:
+                self._strip_seo_fields(structured_fields)
             return EditorialBuildResult(
                 final_title=final_title,
                 final_summary=final_summary,
@@ -238,7 +245,44 @@ class EditorialBuilderService:
                 featured_image_ref=structured_fields.get("featured_image_ref"),
             )
 
-        return self._fallback_build(prepared_text, classification, images, warnings, errors, category_config, source_context)
+        return self._fallback_build(
+            prepared_text,
+            classification,
+            images,
+            warnings,
+            errors,
+            category_config,
+            source_context,
+            review_enabled=review_enabled,
+            strip_seo_fields=(strip_seo_fields or not seo_enabled),
+        )
+
+    def _strip_seo_fields(self, structured_fields: Dict[str, Any]) -> None:
+        seo_keys = [
+            "rank_math_focus_keyword",
+            "rank_math_pillar_content",
+            "rank_math_advanced_robots",
+            "rank_math_canonical_url",
+            "rank_math_title",
+            "rank_math_description",
+            "rank_math_facebook_title",
+            "rank_math_facebook_description",
+            "rank_math_facebook_image",
+            "rank_math_facebook_enable_image_overlay",
+            "rank_math_facebook_image_overlay",
+            "rank_math_twitter_use_facebook",
+            "rank_math_twitter_title",
+            "rank_math_twitter_description",
+            "rank_math_twitter_card_type",
+            "rank_math_twitter_app_description",
+            "headline",
+            "schema_description",
+            "ds_keywords",
+            "types_description",
+        ]
+        for key in seo_keys:
+            if key in structured_fields:
+                structured_fields[key] = ""
 
     def _build_effective_source_text(
         self,
@@ -313,6 +357,7 @@ class EditorialBuilderService:
         truncated = text[:8000]
         strict_example = (category_config.get("json_example") or "").strip()
         extra_instructions = (category_config.get("instructions") or "").strip()
+        px_editorial_guide = self._px_editorial_guide_for_category(category)
         system = (
             "Ets un assistent editorial per a publicacions locals catalanes. "
             "Genera contingut web a partir del text extret de documents. "
@@ -328,6 +373,10 @@ class EditorialBuilderService:
             f"Categoria: {category}\n"
             f"Subtipus: {subtype}\n\n"
             f"Text extret:\n{truncated}\n\n"
+        )
+        prompt += (
+            "Guia editorial Panxing 2026 que has de seguir per redactar el contingut, sempre subordinada al contracte tecnic JSON/HTML d'aquest sistema:\n"
+            f"{px_editorial_guide}\n\n"
         )
         vision_context = self._clean_text_line(metadata.get("vision_context_text", ""))
         if vision_context:
@@ -396,6 +445,13 @@ class EditorialBuilderService:
             logger.error(f"Error LLM editorial: {e}")
             return None
 
+    def _px_editorial_guide_for_category(self, category: str) -> str:
+        if str(category or "").upper().strip() == "AGENDA":
+            configured = SettingsResolver.get("px_agenda_prompt_guide", "")
+            return str(configured or "").strip() or PX_AGENDA_PROMPT_GUIDE
+        configured = SettingsResolver.get("px_editorial_prompt_guide", "")
+        return str(configured or "").strip() or PX_EDITORIAL_PROMPT_GUIDE
+
     def _fallback_build(
         self,
         text: str,
@@ -405,6 +461,8 @@ class EditorialBuilderService:
         errors: List[str],
         category_config: Dict[str, Any],
         source_context: Dict[str, Any],
+        review_enabled: bool = True,
+        strip_seo_fields: bool = False,
     ) -> EditorialBuildResult:
         warnings.append("LLM no disponible, s'ha usat el generador per defecte.")
 
@@ -449,20 +507,21 @@ class EditorialBuilderService:
             source_context=source_context,
             metadata={"category": category},
         )
-        title, summary, body_html, structured_fields = self._apply_final_review(
-            municipality=classification.municipality.value if classification.municipality else "",
-            category=category,
-            subtype=classification.subtype.value if classification.subtype else "",
-            original_text=text,
-            vision_context_text="",
-            title=title,
-            summary=summary,
-            body_html=body_html,
-            structured_fields=structured_fields,
-            images=images,
-            source_context=source_context,
-            metadata={"category": category},
-        )
+        if review_enabled:
+            title, summary, body_html, structured_fields = self._apply_final_review(
+                municipality=classification.municipality.value if classification.municipality else "",
+                category=category,
+                subtype=classification.subtype.value if classification.subtype else "",
+                original_text=text,
+                vision_context_text="",
+                title=title,
+                summary=summary,
+                body_html=body_html,
+                structured_fields=structured_fields,
+                images=images,
+                source_context=source_context,
+                metadata={"category": category},
+            )
 
         self._normalize_category_specific_fields(structured_fields, {}, category, text)
 
@@ -481,6 +540,8 @@ class EditorialBuilderService:
         )
         if strict_payload is not None:
             structured_fields["_strict_export_payload"] = strict_payload
+        if strip_seo_fields:
+            self._strip_seo_fields(structured_fields)
 
         return EditorialBuildResult(
             final_title=title,

@@ -1031,14 +1031,28 @@ def preview_manual_tree_groups(payload: dict = Body(...), db: Session = Depends(
         raise HTTPException(status_code=400, detail="No se han recibido grupos para previsualizar")
 
     SettingsResolver.reload(db)
-    result = manual_tree_service.preview_groups(db, group_ids)
+    agenda_program_fields = bool(payload.get("agenda_program_fields", False))
+    enable_ocr = bool(payload.get("enable_ocr", True))
+    enable_seo = bool(payload.get("enable_seo", True))
+    result = manual_tree_service.preview_groups(
+        db,
+        group_ids,
+        agenda_program_fields=agenda_program_fields,
+        enable_ocr=enable_ocr,
+        enable_seo=enable_seo,
+    )
     _log_workspace_event(
         db,
         EventLevel.INFO if result.get("success") else EventLevel.WARNING,
         "MANUAL_TREE_PREVIEW_GENERATED",
         "WORKSPACE_MANUAL_TREE",
         result.get("message") or "Preview de grupos generado",
-        payload={"group_ids": [str(item) for item in group_ids]},
+        payload={
+            "group_ids": [str(item) for item in group_ids],
+            "agenda_program_fields": agenda_program_fields,
+            "enable_ocr": enable_ocr,
+            "enable_seo": enable_seo,
+        },
     )
     return result
 
@@ -1561,30 +1575,22 @@ def clear_last_batch(flow_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Flow no encontrado")
     from app.db.repositories.all_repos import source_batch_repo, source_file_repo, content_candidate_repo, canonical_content_repo
 
-    batches = source_batch_repo.get_all(db)
-    matching = [b for b in batches if (b.municipality_hint or "").upper() == flow.municipality.upper() and (b.category_hint or "").upper() == flow.category.upper()]
+    matching = source_batch_repo.get_by_municipality_and_category(db, flow.municipality.upper(), flow.category.upper())
     if not matching:
         return {"success": True, "message": "No hay lotes para este flujo"}
     deleted = 0
     for batch in matching:
         try:
-            candidates = [c for c in content_candidate_repo.get_all(db) if c.batch_id == batch.id]
+            candidates = content_candidate_repo.get_by_batch_id(db, batch.id)
+            candidate_ids = [c.id for c in candidates]
+            deleted += canonical_content_repo.delete_by_candidate_ids(db, candidate_ids)
             for c in candidates:
-                try:
-                    canonical = canonical_content_repo.get_by_candidate_id(db, c.id)
-                    if canonical:
-                        canonical_content_repo.delete(db, id=canonical.id)
-                except Exception:
-                    pass
                 content_candidate_repo.delete(db, id=c.id)
                 deleted += 1
         except Exception:
             pass
         try:
-            files = [f for f in source_file_repo.get_all(db) if f.batch_id == batch.id]
-            for f in files:
-                source_file_repo.delete(db, id=f.id)
-                deleted += 1
+            deleted += source_file_repo.delete_by_batch_id(db, batch.id)
         except Exception:
             pass
         try:

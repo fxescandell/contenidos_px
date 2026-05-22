@@ -1,4 +1,5 @@
 import json as _json
+import time
 from typing import Any, Dict, Optional, List
 
 from sqlalchemy.orm import Session
@@ -7,45 +8,47 @@ from app.db.repositories.settings_repos import system_setting_repo, settings_aud
 from app.schemas.settings import SettingItemUpdate
 from app.core.settings_enums import SettingType
 from app.config.settings import settings as env_settings
+from app.services.editorial.prompt_guides import PX_AGENDA_PROMPT_GUIDE, PX_EDITORIAL_PROMPT_GUIDE
 
 class SettingsResolver:
-    """
-    Combina la configuración de la Base de Datos con las variables de entorno (fallback).
-    Implementa un caché en memoria muy básico para no saturar la BD si se lee muchas veces,
-    aunque en un pipeline por lotes, leer de BD una vez por lote es aceptable.
-    """
     _cache: Dict[str, Any] = {}
     _cache_loaded: bool = False
+    _cache_timestamp: float = 0.0
+    _cache_ttl: float = 5.0
 
     @classmethod
     def reload(cls, db: Session):
+        now = time.monotonic()
+        if cls._cache_loaded and (now - cls._cache_timestamp) < cls._cache_ttl:
+            return
         cls._cache.clear()
         all_settings = system_setting_repo.get_all(db)
         for s in all_settings:
             val = s.value_json.get("value")
-            # Unmasking secrets is not done here, resolver just returns the stored value
-            # Note: secrets should ideally be encrypted, but for this exercise we store them 
-            # and just mask them in the UI.
             cls._cache[s.key] = val
         cls._cache_loaded = True
+        cls._cache_timestamp = time.monotonic()
+
+    @classmethod
+    def force_reload(cls, db: Session):
+        cls._cache.clear()
+        cls._cache_loaded = False
+        cls._cache_timestamp = 0.0
+        cls.reload(db)
 
     @classmethod
     def get(cls, key: str, default: Any = None) -> Any:
         if not cls._cache_loaded:
-            # Sincrónico, en producción esto debería llamarse al inicio
             with SessionLocal() as db:
                 cls.reload(db)
-                
-        # 1. Intentar BD
+
         if key in cls._cache:
             return cls._cache[key]
-            
-        # 2. Intentar Env (app.config.settings)
+
         env_val = getattr(env_settings, key.upper(), None)
         if env_val is not None:
             return env_val
-            
-        # 3. Fallback
+
         return default
 
 class SettingsService:
@@ -115,8 +118,7 @@ class SettingsService:
                 "performed_by": user
             })
             
-        # Reload cache
-        SettingsResolver.reload(db)
+        SettingsResolver.force_reload(db)
 
     @staticmethod
     def initialize_defaults(db: Session):
@@ -210,6 +212,8 @@ class SettingsService:
             {"key": "wp_default_author_id", "value": "1", "type": SettingType.INTEGER, "cat": "publishing", "desc": "ID del autor por defecto para los articulos importados"},
             {"key": "export_include_media", "value": True, "type": SettingType.BOOLEAN, "cat": "publishing", "desc": "Incluye las URLs de las imagenes/medios en el JSON exportado"},
             {"key": "category_export_configs", "value": "[]", "type": SettingType.JSON, "cat": "categories", "desc": "Configuracion de exportacion estricta por categoria (JSON)"},
+            {"key": "px_editorial_prompt_guide", "value": PX_EDITORIAL_PROMPT_GUIDE, "type": SettingType.STRING, "cat": "categories", "desc": "Prompt editorial Pànxing para articulos generales"},
+            {"key": "px_agenda_prompt_guide", "value": PX_AGENDA_PROMPT_GUIDE, "type": SettingType.STRING, "cat": "categories", "desc": "Prompt editorial Pànxing para agenda"},
 
             # Rutas locales
             {"key": "working_folder_path", "value": "/tmp/editorial_working", "type": SettingType.STRING, "cat": "paths", "desc": "Carpeta temporal donde se descomprimen y procesan los archivos del pipeline"},
@@ -219,11 +223,13 @@ class SettingsService:
             {"key": "log_folder_path", "value": "logs", "type": SettingType.STRING, "cat": "paths", "desc": "Carpeta donde se guardan los logs de la aplicacion"},
         ]
         
+        all_settings = system_setting_repo.get_all(db)
+        existing_keys = {s.key for s in all_settings}
+        to_create = []
         for d in defaults:
-            existing = system_setting_repo.get_by_key(db, d["key"])
-            if existing:
+            if d["key"] in existing_keys:
                 continue
-            system_setting_repo.create(db, obj_in={
+            to_create.append({
                 "key": d["key"],
                 "value_json": {"value": d["value"]},
                 "value_type": d["type"],
@@ -231,3 +237,5 @@ class SettingsService:
                 "is_secret": d.get("secret", False),
                 "description": d.get("desc", "")
             })
+        for obj in to_create:
+            system_setting_repo.create(db, obj_in=obj)

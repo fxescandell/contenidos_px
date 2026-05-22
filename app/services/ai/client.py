@@ -1,12 +1,32 @@
 import json
 import logging
 import mimetypes
+import random
+import re
+import time
 from urllib.parse import urlparse
 from typing import Optional, List, Dict, Any
 
 from app.services.settings.service import SettingsResolver
 
 logger = logging.getLogger(__name__)
+
+
+RETRYABLE_HTTP_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return default
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(str(value).strip())
+    except Exception:
+        return default
 
 
 class LlmClient:
@@ -42,8 +62,72 @@ class LlmClient:
             response = self._call_api(messages, max_tokens, timeout_seconds=timeout_seconds)
             return response.strip()
         except Exception as e:
-            logger.error(f"Error LLM ({self.provider}): {e}")
+            logger.error("Error LLM (%s): %s", self.provider, self._sanitize_exception_message(e))
             raise
+
+    def _sanitize_exception_message(self, error: Exception) -> str:
+        raw = str(error or "")
+        if not raw:
+            return ""
+        # Evita exponer llaves API en logs (ej: Gemini ?key=...)
+        raw = re.sub(r"([?&]key=)[^&\s]+", r"\1***", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"(Bearer\s+)[A-Za-z0-9._\-]+", r"\1***", raw, flags=re.IGNORECASE)
+        return raw
+
+    def _request_with_retries(
+        self,
+        url: str,
+        payload: Dict[str, Any],
+        headers: Dict[str, str],
+        timeout_seconds: float,
+        *,
+        max_attempts: int = 3,
+        allow_400_fallback: bool = False,
+    ):
+        import httpx
+
+        attempts = max(1, _safe_int(max_attempts, 1))
+        base_backoff = _safe_float(SettingsResolver.get("llm_retry_backoff_seconds", 1.0), 1.0)
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1, attempts + 1):
+            try:
+                resp = httpx.post(url, json=payload, headers=headers, timeout=timeout_seconds)
+                if resp.status_code == 400 and allow_400_fallback and attempt < attempts:
+                    # Algunos proveedores devuelven 400 por exceso de tokens: reintento conservador.
+                    if isinstance(payload.get("max_tokens"), int) and payload["max_tokens"] > 1200:
+                        payload = dict(payload)
+                        payload["max_tokens"] = max(1200, int(payload["max_tokens"] * 0.6))
+                        time.sleep(0.2)
+                        continue
+                if resp.status_code in RETRYABLE_HTTP_STATUS and attempt < attempts:
+                    retry_after = resp.headers.get("retry-after")
+                    delay = _safe_float(retry_after, base_backoff * (2 ** (attempt - 1)))
+                    delay += random.uniform(0, 0.25)
+                    time.sleep(delay)
+                    continue
+
+                resp.raise_for_status()
+                return resp
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code if exc.response is not None else None
+                if status_code in RETRYABLE_HTTP_STATUS and attempt < attempts:
+                    delay = base_backoff * (2 ** (attempt - 1)) + random.uniform(0, 0.25)
+                    time.sleep(delay)
+                    last_error = exc
+                    continue
+                raise
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_error = exc
+                if attempt < attempts:
+                    delay = base_backoff * (2 ** (attempt - 1)) + random.uniform(0, 0.25)
+                    time.sleep(delay)
+                    continue
+                raise
+
+        if last_error:
+            raise last_error
+        raise RuntimeError("Error desconocido llamando al LLM")
 
     def _call_api(self, messages: List[Dict], max_tokens: int, timeout_seconds: Optional[float] = None) -> str:
         provider = self.provider.lower()
@@ -104,8 +188,14 @@ class LlmClient:
             payload = {"model": self.model, "max_tokens": max_tokens, "messages": messages,
                      "temperature": self.temperature}
 
-        resp = httpx.post(url, json=payload, headers=headers, timeout=(timeout_seconds or 60))
-        resp.raise_for_status()
+        resp = self._request_with_retries(
+            url,
+            payload,
+            headers,
+            timeout_seconds=(timeout_seconds or 60),
+            max_attempts=_safe_int(SettingsResolver.get("llm_retry_attempts", 3), 3),
+            allow_400_fallback=(provider == "groq"),
+        )
         data = resp.json()
 
         if provider == "anthropic":
@@ -135,8 +225,13 @@ class LlmClient:
                 "parts": [{"text": system_instruction}]
             }
 
-        resp = httpx.post(url, json=payload, headers={"content-type": "application/json"}, timeout=(timeout_seconds or 60))
-        resp.raise_for_status()
+        resp = self._request_with_retries(
+            url,
+            payload,
+            {"content-type": "application/json"},
+            timeout_seconds=(timeout_seconds or 60),
+            max_attempts=_safe_int(SettingsResolver.get("llm_retry_attempts", 3), 3),
+        )
         data = resp.json()
 
         candidates = data.get("candidates", [])
@@ -210,8 +305,13 @@ class LlmClient:
             },
         }
 
-        resp = httpx.post(url, json=payload, headers={"content-type": "application/json"}, timeout=resolved_timeout)
-        resp.raise_for_status()
+        resp = self._request_with_retries(
+            url,
+            payload,
+            {"content-type": "application/json"},
+            timeout_seconds=resolved_timeout,
+            max_attempts=_safe_int(SettingsResolver.get("llm_retry_attempts", 3), 3),
+        )
         data = resp.json()
         return data.get("message", {}).get("content", "")
 

@@ -1,11 +1,19 @@
 import json
 import os
+import time
 import unicodedata
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from app.core.enums import ContentCategory
 from app.services.settings.service import SettingsResolver
+
+_CATEGORY_EXPORT_CACHE: Dict[str, Any] = {
+    "configs": None,
+    "timestamp": 0.0,
+    "settings_hash": None,
+}
+_CATEGORY_EXPORT_CACHE_TTL = 10.0
 
 
 CATEGORY_LABELS: Dict[str, str] = {
@@ -162,7 +170,17 @@ def get_default_category_export_configs() -> List[Dict[str, Any]]:
 
 
 def get_category_export_configs() -> List[Dict[str, Any]]:
+    global _CATEGORY_EXPORT_CACHE
     raw_value = SettingsResolver.get("category_export_configs", "[]")
+    current_hash = hash(str(raw_value))
+    now = time.monotonic()
+    if (
+        _CATEGORY_EXPORT_CACHE["configs"] is not None
+        and _CATEGORY_EXPORT_CACHE["settings_hash"] == current_hash
+        and (now - _CATEGORY_EXPORT_CACHE["timestamp"]) < _CATEGORY_EXPORT_CACHE_TTL
+    ):
+        return _CATEGORY_EXPORT_CACHE["configs"]
+
     try:
         stored = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
     except Exception:
@@ -188,7 +206,11 @@ def get_category_export_configs() -> List[Dict[str, Any]]:
             item.get("instructions", "") or "",
         )
 
-    return list(merged.values())
+    configs = list(merged.values())
+    _CATEGORY_EXPORT_CACHE["configs"] = configs
+    _CATEGORY_EXPORT_CACHE["timestamp"] = now
+    _CATEGORY_EXPORT_CACHE["settings_hash"] = current_hash
+    return configs
 
 
 def get_category_export_config(category: str) -> Dict[str, Any]:
@@ -307,10 +329,16 @@ def resolve_consells_type(raw_value: Any, text: str = "") -> str:
 
 def build_strict_payload_from_example(example_payload: Any, values: Dict[str, Any]) -> Any:
     if isinstance(example_payload, dict):
-        return {
-            _resolve_string_value(key, {**values, "__current_key": key, "__resolving_key": True}): build_strict_payload_from_example(value, {**values, "__current_key": key})
-            for key, value in example_payload.items()
-        }
+        result = {}
+        for key, value in example_payload.items():
+            values["__current_key"] = key
+            values["__resolving_key"] = True
+            resolved_key = _resolve_string_value(key, values)
+            values["__resolving_key"] = False
+            result[resolved_key] = build_strict_payload_from_example(value, values)
+        values.pop("__current_key", None)
+        values.pop("__resolving_key", None)
+        return result
 
     if isinstance(example_payload, list):
         return [build_strict_payload_from_example(item, values) for item in example_payload]
@@ -333,41 +361,63 @@ def _resolve_string_value(example_value: str, values: Dict[str, Any]) -> Any:
     else:
         search_dates_string = str(search_dates or "")
 
-    placeholders = {
-        "{{ID}}": values.get("id", ""),
-        "{{id}}": values.get("id", ""),
-        "{{title}}": values.get("title", ""),
-        "{{summary}}": values.get("summary", ""),
-        "{{body_html}}": values.get("body_html", ""),
-        "{{body_text}}": values.get("body_text", ""),
-        "{{municipality}}": municipality,
-        "{{category}}": values.get("category", ""),
-        "{{subtype}}": values.get("subtype", ""),
-        "{{featured_image_path}}": values.get("featured_image_path", ""),
-        "{{event_date}}": values.get("event_date", ""),
-        "{{start_date}}": values.get("start_date", ""),
-        "{{end_date}}": values.get("end_date", ""),
-        "{{search_dates}}": values.get("search_dates", []),
-        "{{search_dates_string}}": search_dates_string,
-        "{{publish_date}}": values.get("publish_date", ""),
-        "{{slug}}": values.get("slug", ""),
-        "{{consell_type}}": values.get("consell_type", "Professionals"),
-        "{{municipi_maresme}}": municipality_display if municipality_token == "MARESME" else "",
-        "{{municipi_cerdanya}}": municipality_display if municipality_token == "CERDANYA" else "",
-        "{{municipi_bergueda}}": municipality_display if municipality_token == "BERGUEDA" else "",
-        "{{agenda_category}}": values.get("agenda_category", ""),
-        "{{activity_titles}}": values.get("activity_titles", ""),
-        "{{activity_dates}}": values.get("activity_dates", ""),
-        "{{activity_locations}}": values.get("activity_locations", ""),
-        "{{activity_descriptions}}": values.get("activity_descriptions", ""),
-        "{{activity_extra_info}}": values.get("activity_extra_info", ""),
-        "{{activity_images}}": values.get("activity_images", ""),
-        "{{activities_backend}}": values.get("activities_backend", values.get("activities", "")),
-    }
-
     stripped = example_value.strip()
-    if stripped in placeholders:
-        return placeholders[stripped]
+    if stripped == "{{ID}}" or stripped == "{{id}}":
+        return values.get("id", "")
+    if stripped == "{{title}}":
+        return values.get("title", "")
+    if stripped == "{{summary}}":
+        return values.get("summary", "")
+    if stripped == "{{body_html}}":
+        return values.get("body_html", "")
+    if stripped == "{{body_text}}":
+        return values.get("body_text", "")
+    if stripped == "{{municipality}}":
+        return municipality
+    if stripped == "{{category}}":
+        return values.get("category", "")
+    if stripped == "{{subtype}}":
+        return values.get("subtype", "")
+    if stripped == "{{featured_image_path}}":
+        return values.get("featured_image_path", "")
+    if stripped == "{{event_date}}":
+        return values.get("event_date", "")
+    if stripped == "{{start_date}}":
+        return values.get("start_date", "")
+    if stripped == "{{end_date}}":
+        return values.get("end_date", "")
+    if stripped == "{{search_dates}}":
+        return values.get("search_dates", [])
+    if stripped == "{{search_dates_string}}":
+        return search_dates_string
+    if stripped == "{{publish_date}}":
+        return values.get("publish_date", "")
+    if stripped == "{{slug}}":
+        return values.get("slug", "")
+    if stripped == "{{consell_type}}":
+        return values.get("consell_type", "Professionals")
+    if stripped == "{{municipi_maresme}}":
+        return municipality_display if municipality_token == "MARESME" else ""
+    if stripped == "{{municipi_cerdanya}}":
+        return municipality_display if municipality_token == "CERDANYA" else ""
+    if stripped == "{{municipi_bergueda}}":
+        return municipality_display if municipality_token == "BERGUEDA" else ""
+    if stripped == "{{agenda_category}}":
+        return values.get("agenda_category", "")
+    if stripped == "{{activity_titles}}":
+        return values.get("activity_titles", "")
+    if stripped == "{{activity_dates}}":
+        return values.get("activity_dates", "")
+    if stripped == "{{activity_locations}}":
+        return values.get("activity_locations", "")
+    if stripped == "{{activity_descriptions}}":
+        return values.get("activity_descriptions", "")
+    if stripped == "{{activity_extra_info}}":
+        return values.get("activity_extra_info", "")
+    if stripped == "{{activity_images}}":
+        return values.get("activity_images", "")
+    if stripped == "{{activities_backend}}":
+        return values.get("activities_backend", values.get("activities", ""))
 
     if resolving_key:
         return example_value

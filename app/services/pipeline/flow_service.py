@@ -193,6 +193,7 @@ class FlowService:
         flow: Flow,
         source_info_override: Optional[Dict[str, Any]] = None,
         skip_move_processed: bool = False,
+        processing_options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         db = SessionLocal()
         batch_id = None
@@ -201,6 +202,9 @@ class FlowService:
         local_temp_dir = None
 
         try:
+            options = processing_options or {}
+            enable_ocr = bool(options.get("enable_ocr", True))
+            enable_seo = bool(options.get("enable_seo", True))
             source_info = source_info_override or self.resolve_source_info(flow)
 
             if source_info["mode"] == "smb":
@@ -234,18 +238,12 @@ class FlowService:
             existing = source_batch_repo.get_by_sha256(db, ingestion_data["batch_sha256"])
             if existing and (existing.municipality_hint or "").upper() == flow.municipality.upper() and (existing.category_hint or "").upper() == flow.category.upper():
                 try:
-                    old_candidates = [c for c in content_candidate_repo.get_all(db) if c.batch_id == existing.id]
+                    old_candidates = content_candidate_repo.get_by_batch_id(db, existing.id)
+                    candidate_ids = [c.id for c in old_candidates]
+                    canonical_content_repo.delete_by_candidate_ids(db, candidate_ids)
                     for c in old_candidates:
-                        try:
-                            canonical = canonical_content_repo.get_by_candidate_id(db, c.id)
-                            if canonical:
-                                canonical_content_repo.delete(db, id=canonical.id)
-                        except Exception:
-                            pass
                         content_candidate_repo.delete(db, id=c.id)
-                    old_files = [f for f in source_file_repo.get_all(db) if f.batch_id == existing.id]
-                    for f in old_files:
-                        source_file_repo.delete(db, id=f.id)
+                    source_file_repo.delete_by_batch_id(db, existing.id)
                     source_batch_repo.delete(db, id=existing.id)
                 except Exception as clean_err:
                     event_logger.log(db, EventLevel.WARNING, "CLEAN_DUPLICATE_FAILED", "FLOW", f"No se pudo limpiar lote duplicado {existing.id}: {clean_err}")
@@ -356,8 +354,9 @@ class FlowService:
                 )
 
                 event_logger.log(db, EventLevel.INFO, "EXTRACTION_STARTED", "EXTRACTION", "Extrayendo texto y OCR", batch_id=batch.id, candidate_id=candidate.id)
+                extraction_files = group_docs + group_imgs if enable_ocr else group_docs
                 extractions = self.extraction_orchestrator.process_files(
-                    [{"id": f.id, "path": f.working_path} for f in group_docs + group_imgs]
+                    [{"id": f.id, "path": f.working_path} for f in extraction_files]
                 )
                 event_logger.log(
                     db,
@@ -437,6 +436,9 @@ class FlowService:
                     combined_text,
                     editorial_images,
                     {
+                        "enable_seo": enable_seo,
+                        "disable_final_review": not enable_seo,
+                        "disable_seo_fields": not enable_seo,
                         "featured_selection_images": processed_images,
                         "vision_context_text": vision_text,
                         "image_name_context": "\n".join([

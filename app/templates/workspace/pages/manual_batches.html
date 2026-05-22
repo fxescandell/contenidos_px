@@ -46,6 +46,23 @@
         <button id="tree-preview-btn" class="btn" onclick="previewSelectedTreeGroups()">Generar JSON seleccionados</button>
         <button id="tree-delete-btn" class="btn btn-settings" onclick="deleteSelectedTreeGroups()">Borrar seleccionados</button>
     </div>
+    <div class="tree-step-actions" style="margin-top:8px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#334155;">
+            <input id="tree-agenda-program-mode" type="checkbox">
+            Guardar programacion en campos repetidos (agenda)
+        </label>
+        <span style="font-size:12px; color:#64748b;">Por defecto la agenda se mantiene dentro de <code>post_content</code>.</span>
+    </div>
+    <div class="tree-step-actions" style="margin-top:4px;">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#334155;">
+            <input id="tree-enable-ocr" type="checkbox" checked>
+            OCR de imagenes
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:#334155;">
+            <input id="tree-enable-seo" type="checkbox" checked>
+            SEO (Rank Math y metadatos)
+        </label>
+    </div>
     <div class="tree-filter-row">
         <button class="tree-filter-tab active" data-tree-filter="all" onclick="setTreeFilter('all', this)">Todos</button>
         <button class="tree-filter-tab" data-tree-filter="UNASSIGNED" onclick="setTreeFilter('UNASSIGNED', this)">Sin asignar</button>

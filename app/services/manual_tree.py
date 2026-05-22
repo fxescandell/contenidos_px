@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import unicodedata
 from datetime import datetime
@@ -456,7 +457,108 @@ class ManualTreeService:
             "unresolved": unresolved,
         }
 
-    def preview_groups(self, db: Session, group_ids: List[UUID]) -> Dict[str, Any]:
+    def _is_agenda_article(self, article: Dict[str, Any]) -> bool:
+        article_type = str((article or {}).get("tipus-d-article", "") or "").strip().lower()
+        return article_type == "agenda"
+
+    def _clean_text_artifacts(self, value: str) -> str:
+        text = str(value or "")
+        if not text:
+            return ""
+
+        text = re.sub(r"\[\[\s*[Hh]([1-6])\s*\]\]", "", text)
+        text = re.sub(r"\[\[\s*/\s*[Hh]([1-6])\s*\]\]", "", text)
+        text = re.sub(r"\b(\d{1,2})\s*ora\b", r"\1:00 h", text, flags=re.IGNORECASE)
+        text = re.sub(r"\b(\d{1,2})\s*hores\b", r"\1:00 h", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s{2,}", " ", text)
+        text = re.sub(r"\s+\|", "|", text)
+        text = re.sub(r"\|\s+", "|", text)
+        text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+        return text.strip()
+
+    def _is_low_quality_agenda_fragment(self, value: str) -> bool:
+        token = (value or "").strip().lower()
+        if not token:
+            return True
+
+        if token in {"-", "—", "–", "|", "()", ")", "("}:
+            return True
+
+        if re.match(r"^(de|del)\s+20\d{2}$", token):
+            return True
+
+        if re.match(r"^al\s+\d{1,2}\s+de\s+[a-zà-ÿ]+$", token):
+            return True
+
+        if re.match(r"^\d{4}$", token):
+            return True
+
+        return False
+
+    def _clean_agenda_pipe_field(self, value: str) -> str:
+        if not isinstance(value, str) or not value:
+            return ""
+
+        items = [self._clean_text_artifacts(part) for part in value.split("|")]
+        kept = [item for item in items if not self._is_low_quality_agenda_fragment(item)]
+        return "|".join(kept)
+
+    def _clean_agenda_fields(self, article: Dict[str, Any]) -> None:
+        keys = [
+            "titol-activitat",
+            "data-i-hora-activitat",
+            "on-es-realitza-l-activitat",
+            "descripcio-activitat",
+            "informacio-adicional",
+            "imatge-activitat",
+            "activitats",
+        ]
+        for key in keys:
+            article[key] = self._clean_agenda_pipe_field(str(article.get(key, "") or ""))
+
+    def _sanitize_preview_payload_strings(self, node: Any) -> Any:
+        if isinstance(node, dict):
+            return {k: self._sanitize_preview_payload_strings(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [self._sanitize_preview_payload_strings(item) for item in node]
+        if isinstance(node, str):
+            return self._clean_text_artifacts(node)
+        return node
+
+    def _apply_agenda_program_mode(self, payload: Any, agenda_program_fields: bool) -> Any:
+        if not isinstance(payload, dict):
+            return payload
+
+        payload = self._sanitize_preview_payload_strings(payload)
+
+        for _article_id, article in payload.items():
+            if not isinstance(article, dict):
+                continue
+            if not self._is_agenda_article(article):
+                continue
+
+            self._clean_agenda_fields(article)
+
+            if agenda_program_fields:
+                continue
+
+            article["titol-activitat"] = ""
+            article["data-i-hora-activitat"] = ""
+            article["on-es-realitza-l-activitat"] = ""
+            article["descripcio-activitat"] = ""
+            article["informacio-adicional"] = ""
+            article["imatge-activitat"] = ""
+            article["activitats"] = ""
+        return payload
+
+    def preview_groups(
+        self,
+        db: Session,
+        group_ids: List[UUID],
+        agenda_program_fields: bool = False,
+        enable_ocr: bool = True,
+        enable_seo: bool = True,
+    ) -> Dict[str, Any]:
         groups = db.query(ManualTreeGroup).filter(ManualTreeGroup.id.in_(group_ids)).all()
         if not groups:
             return {"success": False, "message": "No se encontraron grupos para previsualizar."}
@@ -489,12 +591,21 @@ class ManualTreeService:
                 "smb_source_unc": None,
                 "relative_source_path": None,
             }
-            result = self.flow_service.run_flow(flow, source_info_override=source_info, skip_move_processed=True)
+            result = self.flow_service.run_flow(
+                flow,
+                source_info_override=source_info,
+                skip_move_processed=True,
+                processing_options={
+                    "enable_ocr": enable_ocr,
+                    "enable_seo": enable_seo,
+                },
+            )
             if not result.get("success"):
                 errors.append({"group_id": str(group.id), "message": result.get("message", "Error en previsualizacion")})
                 continue
 
             payload = result.get("export_payload")
+            payload = self._apply_agenda_program_mode(payload, agenda_program_fields=agenda_program_fields)
             articles = result.get("articles", []) or []
             preview_json = self.flow_service.generate_json(flow, articles, payload)
 
